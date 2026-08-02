@@ -303,6 +303,7 @@ Los ADR completos están en [`docs/HARNESS.md`](HARNESS.md). Resumen:
 | 11 | La configuración de fuentes se verifica contra el mundo, no contra el PRD |
 | 12 | `qwen3.5` razona: hay que desactivarlo con `think: false` |
 | 13 | El async×8 está implementado pero lo bloquea `OLLAMA_NUM_PARALLEL=1` |
+| 14 | El repo es ejecutable por cualquiera: detección de contexto por alias SSH y perfil `standalone` de Ollama |
 
 ---
 

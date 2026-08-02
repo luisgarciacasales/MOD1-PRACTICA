@@ -117,7 +117,7 @@ init: ## Crea el árbol data/ con el ownership correcto (ANTES del primer up)
 	@echo "Creando data/ [$(MODO)] — si no existe, Docker lo crearía como root."
 	$(RUN) 'cd $(DIR) && mkdir -p data/bronze/news data/bronze/market \
 		data/silver data/gold data/cache data/faiss data/hf_cache && ls -la data'
-	@echo "Recuerda: el .env se crea A MANO en el servidor desde .env.example (invariante 3)."
+	@echo "Recuerda: el .env se crea A MANO desde .env.example y nunca entra a git (invariante 3)."
 
 build: ## Reconstruye la imagen de la app
 	$(RUN) '$(COMPOSE) build'
