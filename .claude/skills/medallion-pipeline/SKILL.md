@@ -54,8 +54,12 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app p
 
 | Etapa | Estado |
 | --- | --- |
-| `migrate` · `ingest` · `validate` | **Implementadas.** |
-| `enrich` · `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+| `migrate` · `ingest` · `validate` · `enrich` | **Implementadas.** |
+| `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+
+**Enriquecimiento — dos cosas que hay que saber antes de tocarlo:**
+- `qwen3.5:9b` **razona**: sin `think: false` agota el presupuesto de tokens pensando y devuelve `content` vacío (ADR-12).
+- El **async×8 no acelera hoy**: `lab-ollama` tiene `OLLAMA_NUM_PARALLEL: 1` y serializa. Lote 8 y lote 16 miden idéntico (1,75 s/noticia). Subir ese valor toca un servicio compartido — autorización explícita (ADR-13).
 
 **Silver es reconstruible.** Todas sus tablas se regeneran desde Bronze en segundos (`TRUNCATE` + `validate`). Ante un cambio de contrato o una corrección de reglas, reconstruir es preferible a parchear filas: las que entraron bajo la regla vieja no las alcanza el UPSERT si dejan de satisfacer el contrato, y quedan como residuo silencioso.
 
