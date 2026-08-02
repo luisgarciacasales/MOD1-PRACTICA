@@ -39,6 +39,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 # El código se monta como volumen en compose.yaml durante el desarrollo; se
 # copia también aquí para que la imagen sea autosuficiente y reproducible.
 COPY src/ /app/src/
+COPY sql/ /app/sql/
+COPY tests/ /app/tests/
 
 # data/ es un bind mount en runtime; se crea aquí con el ownership correcto para
 # que el primer arranque no falle si el host aún no tiene los subdirectorios.

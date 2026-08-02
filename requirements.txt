@@ -51,6 +51,11 @@ faiss-cpu~=1.9
 # conmutar. Se mantiene e5-large como default por fidelidad al PRD §6.5.
 sentence-transformers~=3.3
 
+# --- Pruebas ---
+# Los contratos son la frontera de calidad del sistema: sus reglas se prueban,
+# no se confían. Se ejecutan dentro del contenedor, donde viven las deps.
+pytest~=8.3
+
 # --- Utilidades ---
 python-dotenv~=1.0
 tenacity~=9.0          # reintentos con backoff: ingesta fail-soft por fuente

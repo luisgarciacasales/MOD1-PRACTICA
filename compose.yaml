@@ -140,6 +140,12 @@ services:
       # Código montado: permite iterar con `git pull` + reinicio, sin rebuild,
       # mientras el scaffold esté en movimiento.
       - ./src:/app/src:ro
+      # Migraciones SQL: las aplica `python -m src.pipeline.migrate`. Montadas
+      # (no solo horneadas) para poder añadir una migración con git pull.
+      - ./sql:/app/sql:ro
+      # Pruebas de los contratos: se ejecutan dentro del contenedor, que es
+      # donde viven las dependencias.
+      - ./tests:/app/tests:ro
       # BRONZE/SILVER/GOLD. Bind mount al host para que los datos sobrevivan a
       # `compose down` y sean inspeccionables por SSH. Gitignorado (invariante 1).
       - ./data:/app/data

@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -122,6 +122,14 @@ tunnel: ## Túnel SSH: Postgres remoto → 127.0.0.1:$(PG_PORT) en el Mac — SO
 	$(call solo_mac,en el servidor el puerto ya es local en 127.0.0.1:5432)
 	@echo "Postgres de mi-pc disponible en 127.0.0.1:$(PG_PORT) — Ctrl-C para cerrar"
 	ssh -N -L $(PG_PORT):127.0.0.1:5432 $(REMOTE)
+
+## --- Esquema y pruebas ------------------------------------------------------
+
+migrate: ## Aplica las migraciones SQL de sql/ (idempotente)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.migrate'
+
+test: ## Ejecuta las pruebas de los contratos dentro del contenedor
+	$(RUN) '$(COMPOSE) exec -T app python -m pytest tests/ -q'
 
 ## --- Aceptación -------------------------------------------------------------
 

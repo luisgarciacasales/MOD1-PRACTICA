@@ -1,12 +1,43 @@
 """Contratos de datos Pydantic de la capa Silver.
 
-STUB DEL SCAFFOLD — los modelos (SilverNews, MarketPrice, MacroIndicator) y las
-convenciones de silver_dead_letters los define el skill `data-contracts`:
-    .claude/skills/data-contracts/SKILL.md
+Fuente única de verdad de la validación: las etapas del pipeline **importan**
+estos modelos, no los redefinen (regla del skill `data-contracts`).
 
-Reglas que el contrato debe hacer cumplir (PRD §6.2):
-  · tipado estricto: tipos, longitudes, formato de fecha, URL válida
-  · integridad semántica: al menos un Ticker, Sector o Entidad
-  · bypass macroeconómico: macro_bypass = true deja pasar noticias sin ticker
-  · rechazo -> silver_dead_letters con motivo (MISSING_ENTITY, INVALID_URL, ...)
+Cada validador devuelve o el modelo válido o un `DeadLetter` — nunca lanza y
+nunca descarta en silencio. El llamador decide a qué tabla escribe.
+
+    resultado = validar_noticia(crudo, batch_uuid)
+    if isinstance(resultado, DeadLetter):
+        ...  # → silver_dead_letters
+    else:
+        ...  # → silver_news
 """
+
+from src.contracts.fintech import FintechDictEntry
+from src.contracts.market import (
+    MacroIndicator,
+    MarketPrice,
+    validar_macro,
+    validar_precio,
+)
+from src.contracts.news import (
+    SilverNews,
+    calcular_guid,
+    es_macro,
+    validar_noticia,
+)
+from src.contracts.rejections import DeadLetter, RejectionReason
+
+__all__ = [
+    "DeadLetter",
+    "FintechDictEntry",
+    "MacroIndicator",
+    "MarketPrice",
+    "RejectionReason",
+    "SilverNews",
+    "calcular_guid",
+    "es_macro",
+    "validar_macro",
+    "validar_noticia",
+    "validar_precio",
+]
