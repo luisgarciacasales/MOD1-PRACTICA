@@ -36,8 +36,47 @@ from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_t
 
 FUENTES_NOTICIAS = {"bmv_eventos", "financiero", "economista", "bloomberg"}
 
+# Límites del contrato (PRD §5.2). Se aplican aquí, antes de validar, porque
+# superarlos no significa que el dato sea inválido sino que trae markup.
+LIMITE_CONTENIDO = 8192
+LIMITE_TITULO = 1024
+
 
 # --- Normalización Bronze → forma que espera el contrato -------------------
+
+
+def texto_plano(html: str) -> str:
+    """Quita el markup del cuerpo del artículo.
+
+    Los feeds entregan el artículo completo en HTML: 10 500 caracteres de media
+    y hasta 25 000, contra el límite de 8 192 del contrato. Sin esto, la mayor
+    parte de las noticias se iría a cuarentena con TYPE_MISMATCH por longitud —
+    un rechazo por formato disfrazado de rechazo por calidad.
+
+    Limpiar aquí es correcto: Bronze conserva el HTML original intacto, y esto
+    es la frontera Bronze→Silver, donde la normalización sí está permitida.
+    Como efecto secundario mejora la extracción léxica, que ya no puede
+    encontrar nombres de emisora dentro de URLs o atributos.
+    """
+    if "<" not in html:
+        return html
+    from bs4 import BeautifulSoup
+
+    return BeautifulSoup(html, "lxml").get_text(" ", strip=True)
+
+
+def acotar(texto: str, limite: int) -> str:
+    """Recorta al límite del contrato por la última frontera de palabra.
+
+    Se conserva el principio, que es donde el periodismo pone la información
+    (pirámide invertida) y lo que más pesa para el NER y el sentimiento. El
+    texto íntegro sigue disponible en Bronze, así que no se pierde nada:
+    solo deja de viajar a Silver.
+    """
+    if len(texto) <= limite:
+        return texto
+    corte = texto.rfind(" ", 0, limite - 1)
+    return texto[: corte if corte > limite // 2 else limite - 1].rstrip() + "…"
 
 
 def _texto_de_entrada(crudo: dict[str, Any]) -> str:
@@ -81,8 +120,8 @@ def normalizar_noticia(
     que se identifican sobre el texto (ver `src/pipeline/extraccion.py`). El
     contenido original no se modifica — solo se derivan campos nuevos.
     """
-    titulo = str(crudo.get("title") or "")
-    cuerpo = _texto_de_entrada(crudo)
+    titulo = acotar(texto_plano(str(crudo.get("title") or "")), LIMITE_TITULO)
+    cuerpo = acotar(texto_plano(_texto_de_entrada(crudo)), LIMITE_CONTENIDO)
 
     tickers = extraer_tickers(titulo, cuerpo)
     entidades = extraer_entidades(titulo, cuerpo, fintechs=fintechs)

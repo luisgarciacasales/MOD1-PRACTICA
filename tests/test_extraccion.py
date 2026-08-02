@@ -129,3 +129,55 @@ def test_dato_no_disponible_no_se_convierte_en_cero(dato):
 
 def test_fecha_malformada_se_rechaza():
     assert normalizar_macro({"series_id": "SF43783", "fecha": "2026-07-31", "dato": "6.75"}) is None
+
+
+# --- Limpieza de HTML y acotado (límites del contrato) ---------------------
+
+
+def test_quita_el_markup_del_cuerpo():
+    from src.pipeline.validate import texto_plano
+
+    html = "<p>Banorte <strong>eleva</strong> su guía.</p><script>x=1</script>"
+    plano = texto_plano(html)
+    assert "<" not in plano
+    assert "Banorte" in plano and "eleva" in plano
+
+
+def test_texto_sin_markup_pasa_intacto():
+    from src.pipeline.validate import texto_plano
+
+    assert texto_plano("texto sin etiquetas") == "texto sin etiquetas"
+
+
+def test_acotar_respeta_fronteras_de_palabra():
+    from src.pipeline.validate import acotar
+
+    recortado = acotar("palabra " * 100, 50)
+    assert len(recortado) <= 50
+    assert recortado.endswith("…")
+    assert not recortado[:-1].rstrip().endswith("palabr")  # no parte a media palabra
+
+
+def test_acotar_no_toca_lo_que_ya_cabe():
+    from src.pipeline.validate import acotar
+
+    assert acotar("corto", 8192) == "corto"
+
+
+def test_articulo_html_largo_ya_no_va_a_cuarentena():
+    """Regresión: 330 noticias se rechazaban por longitud del HTML crudo."""
+    from uuid import uuid4
+
+    from src.contracts import SilverNews, validar_noticia
+    from src.pipeline.validate import LIMITE_CONTENIDO, normalizar_noticia
+
+    crudo = {
+        "source": "bloomberg",
+        "title": "Cemex anuncia inversión en México",
+        "content": [{"value": "<p>" + ("La emisora informó que. " * 1200) + "</p>"}],
+        "link": "https://www.bloomberglinea.com/nota",
+        "published_parsed": "2026-08-01T14:00:00Z",
+    }
+    datos = normalizar_noticia(crudo, fintechs=())
+    assert len(datos["content"]) <= LIMITE_CONTENIDO
+    assert isinstance(validar_noticia(datos, uuid4()), SilverNews)
