@@ -64,9 +64,12 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente("banxico", "BANXICO SIE", "mercado", None),
 )
 
-# Fuente `bloomberg` tiene tratamiento especial en el contrato Silver: es una de
-# las señales que activan el bypass macroeconómico (PRD §6.2), porque publica
-# notas de política monetaria que legítimamente no mencionan ningún ticker.
+# Fuentes con perfil macroeconómico: publican notas de política monetaria que
+# legítimamente no mencionan ningún ticker.
+#
+# NO son un pase libre al bypass (ADR-10). Solo REFUERZAN la señal léxica:
+# bajan el umbral de MIN_TERMINOS_MACRO términos a 1. Sin ningún término macro
+# en el texto, el bypass no se activa ni siquiera para estas fuentes.
 FUENTES_CON_BYPASS_MACRO: frozenset[str] = frozenset({"bloomberg"})
 
 FUENTES_POR_ID: dict[str, Fuente] = {f.id: f for f in FUENTES}

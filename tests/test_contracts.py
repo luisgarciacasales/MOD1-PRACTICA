@@ -141,13 +141,30 @@ def test_macro_sin_ticker_pasa_con_bypass():
     assert r.tickers is None
 
 
-def test_bloomberg_activa_bypass_por_fuente():
+def test_bloomberg_sin_lexico_macro_NO_activa_bypass():
+    """Endurecimiento (ADR-10): la fuente sola no es un pase libre.
+
+    El PRD leído al pie de la letra dejaría pasar cualquier huérfana de
+    Bloomberg. Aquí se exige que el texto hable de macro.
+    """
     r = validar_noticia(
-        noticia(source="bloomberg", title="Panorama", content="Sin tickers.", tickers=None),
+        noticia(
+            source="bloomberg",
+            title="Nueva cafetería abre en Polanco",
+            content="El local ofrece grano de Chiapas.",
+            tickers=None,
+        ),
         BATCH,
     )
-    assert isinstance(r, SilverNews)
-    assert r.macro_bypass is True
+    assert isinstance(r, DeadLetter)
+    assert r.rejection_reason is RejectionReason.MISSING_ENTITY
+
+
+def test_bloomberg_refuerza_con_un_solo_termino():
+    """La fuente sí baja el umbral de 2 términos a 1: es señal reforzadora."""
+    texto = "El banco central discutió el rumbo de la política monetaria."
+    assert es_macro("bloomberg", texto) is True
+    assert es_macro("economista", texto) is False
 
 
 def test_una_sola_mencion_macro_no_basta():

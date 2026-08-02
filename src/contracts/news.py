@@ -66,18 +66,24 @@ def calcular_guid(source: str, url: str, published_at: datetime) -> str:
 def es_macro(source: str, *textos: str) -> bool:
     """¿Califica la noticia para el bypass macroeconómico?
 
-    Dos señales, según el PRD §6.2: la fuente (Bloomberg Línea publica notas de
-    política monetaria sin ticker) o el léxico del propio texto.
+    **El léxico es obligatorio.** La fuente es una señal *reforzadora*, no un
+    pase libre: en las fuentes con perfil macro (Bloomberg Línea publica notas
+    de política monetaria sin ticker) basta 1 término en vez de
+    MIN_TERMINOS_MACRO, pero cero términos nunca activa el bypass.
 
-    El umbral de MIN_TERMINOS_MACRO términos distintos evita que una mención
-    incidental ("el peso mexicano se fortaleció") abra la puerta a cualquier
-    registro huérfano.
+    Endurecimiento deliberado respecto al PRD §6.2, que dice "detectadas por el
+    LLM o por source = bloomberg". Leído al pie de la letra, la fuente sola
+    abriría la puerta a CUALQUIER nota huérfana de Bloomberg hablara o no de
+    política monetaria, y el bypass dejaría de ser una excepción acotada para
+    convertirse en un agujero en el contrato. Ver ADR-10 en docs/HARNESS.md.
+
+    El umbral evita además que una mención incidental ("el peso mexicano se
+    fortaleció frente al dólar") cuele un registro sin entidades.
     """
-    if source in FUENTES_CON_BYPASS_MACRO:
-        return True
     cuerpo = normalizar(" ".join(t for t in textos if t))
     encontrados = {termino for termino in LEXICO_MACRO if termino in cuerpo}
-    return len(encontrados) >= MIN_TERMINOS_MACRO
+    umbral = 1 if source in FUENTES_CON_BYPASS_MACRO else MIN_TERMINOS_MACRO
+    return len(encontrados) >= umbral
 
 
 class SilverNews(BaseModel):

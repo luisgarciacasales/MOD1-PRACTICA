@@ -16,10 +16,12 @@ Todo registro se evalúa contra un `BaseModel` de Pydantic en dos dimensiones:
 
 ## Excepción: Bypass macroeconómico
 
-Noticias de alto impacto sobre **tasas / inflación / política monetaria** (detectadas por el LLM o por `source = bloomberg`) pueden no mencionar ticker. En ese caso:
+Noticias de alto impacto sobre **tasas / inflación / política monetaria** pueden no mencionar ticker. En ese caso:
 - El validador asigna `macro_bypass = true`.
 - El registro pasa a `silver_news` **aunque `tickers` esté vacío**.
 - Evita falsos negativos que borrarían contexto macro crítico.
+
+**Cómo se detecta (endurecido respecto al PRD — ADR-10):** el **léxico macro del texto es obligatorio** (`src/config/macro_lexicon.py`, ≥ `MIN_TERMINOS_MACRO` términos distintos). La fuente es una señal *reforzadora*, no un pase libre: `source = bloomberg` baja el umbral a 1 término, pero **cero términos nunca activa el bypass**. El PRD §6.2 dice "detectadas por el LLM o por `source = bloomberg`"; tomado literalmente, cualquier huérfana de Bloomberg entraría a Silver y el bypass dejaría de ser una excepción acotada. La etapa de enriquecimiento puede corregir el flag después, con el criterio del LLM.
 
 ## Contratos (esquemas de referencia — PRD §5.2)
 

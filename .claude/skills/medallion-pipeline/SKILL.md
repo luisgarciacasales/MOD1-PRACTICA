@@ -31,7 +31,7 @@ Noticias (texto): BMV Eventos Relevantes (scraping ligero), El Financiero, El Ec
 - **Async×8.** El enriquecimiento envía lotes de 8 noticias simultáneas a Ollama (`asyncio` + `aiohttp`). Escalar a 16 solo tras verificar VRAM (`nvidia-smi`, ver remote-ops). Ollama = `http://host.docker.internal:11434`.
 - **Calendario XMEX.** El JOIN noticias↔precios usa `pandas_market_calendars` (XMEX): noticia de viernes → impacto medido el **siguiente día hábil** (lunes o el próximo si es feriado). Nunca fecha calendario.
 - **Proxy ticker.** Fintech sin cotización BMV (Nu, Ualá, Stori, Klar) → el LLM infiere el sector afectado → mapea a ticker proxy (tabla §3.3 del PRD: banca_consumo→GFNORTE.MX/BBAJIO.MX, etc.). Marca `is_proxy = true`, guarda `original_fintech`, `sector_affected`, `proxy_ticker`.
-- **Bypass macro.** Noticias macro (tasas/inflación/política monetaria, o `source=bloomberg`) sin ticker pueden pasar a `silver_news` con `macro_bypass = true`. Ver **data-contracts**.
+- **Bypass macro.** Noticias macro (tasas/inflación/política monetaria) sin ticker pueden pasar a `silver_news` con `macro_bypass = true`. El léxico macro es **obligatorio**; `source=bloomberg` solo baja el umbral, no lo sustituye (ADR-10). Ver **data-contracts**.
 
 ## Ejecución (dentro de contenedores en mi-pc)
 
