@@ -13,26 +13,9 @@ cuarentena y la pierde para siempre. El primero es reversible; el segundo no.
 
 from __future__ import annotations
 
-import re
-import unicodedata
-
 from src.config.emisoras import ALIAS_EMISORAS, ENTIDADES_FINANCIERAS, LEXICO_SECTORES
-
-
-def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos, para comparar contra los alias."""
-    descompuesto = unicodedata.normalize("NFD", texto.lower())
-    return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn")
-
-
-def _contiene(cuerpo: str, termino: str) -> bool:
-    """Coincidencia con fronteras de palabra.
-
-    Sin ellas, "amx" coincidiría dentro de "amxico" y "bmv" dentro de
-    cualquier cadena que la contenga. `re.escape` es imprescindible porque
-    varios alias traen apóstrofos y puntos ("domino's", "s&p global").
-    """
-    return re.search(rf"(?<!\w){re.escape(termino)}(?!\w)", cuerpo) is not None
+from src.texto import contiene_termino as _contiene
+from src.texto import normalizar
 
 
 def extraer_tickers(*textos: str) -> list[str]:

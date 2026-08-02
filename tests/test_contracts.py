@@ -315,3 +315,15 @@ def test_fintech_ticker_vacio_se_normaliza_a_none():
         legal_name="Klar Technologies", commercial_name="Klar", ticker="  ", sector="lending"
     )
     assert e.ticker is None
+
+
+def test_fed_no_coincide_dentro_de_federacion():
+    """Regresión: es_macro comparaba por subcadena y 'fed' casaba dentro de
+    'confederación', metiendo noticias de deportes a Silver como macro."""
+    assert es_macro("bloomberg", "La Confederación y la Federación acordaron el plan") is False
+    assert es_macro("bloomberg", "La Fed recortó su tasa") is True
+
+
+def test_pib_no_coincide_dentro_de_otra_palabra():
+    assert es_macro("bloomberg", "el equipo pibe jugó bien") is False
+    assert es_macro("bloomberg", "el PIB creció 2%") is True

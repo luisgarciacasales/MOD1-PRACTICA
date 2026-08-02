@@ -15,7 +15,6 @@ silencio. Quien lo llama solo tiene que decidir a qué tabla escribe.
 from __future__ import annotations
 
 import hashlib
-import unicodedata
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -34,6 +33,7 @@ from pydantic.networks import HttpUrl
 from src.config.macro_lexicon import LEXICO_MACRO, MIN_TERMINOS_MACRO
 from src.config.sources import FUENTES_CON_BYPASS_MACRO
 from src.contracts.rejections import DeadLetter, RejectionReason
+from src.texto import normalizar, terminos_presentes
 
 # Solo las fuentes de texto: yahoo_finance y banxico tienen sus propios
 # contratos, y finnovista es un diccionario, no una noticia.
@@ -42,10 +42,9 @@ SourceNoticias = Literal["bmv_eventos", "financiero", "economista", "bloomberg"]
 _URL_ADAPTER = TypeAdapter(HttpUrl)
 
 
-def normalizar(texto: str) -> str:
-    """Minúsculas y sin acentos, para comparar léxico de forma estable."""
-    descompuesto = unicodedata.normalize("NFD", texto.lower())
-    return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn")
+# Re-exportado desde src.texto: la comparación de léxico debe ser idéntica aquí
+# y en la extracción de `pipeline/`, o el contrato y la extracción discrepan.
+__all__ = ["SilverNews", "calcular_guid", "es_macro", "normalizar", "validar_noticia"]
 
 
 def calcular_guid(source: str, url: str, published_at: datetime) -> str:
@@ -80,8 +79,7 @@ def es_macro(source: str, *textos: str) -> bool:
     El umbral evita además que una mención incidental ("el peso mexicano se
     fortaleció frente al dólar") cuele un registro sin entidades.
     """
-    cuerpo = normalizar(" ".join(t for t in textos if t))
-    encontrados = {termino for termino in LEXICO_MACRO if termino in cuerpo}
+    encontrados = terminos_presentes(" ".join(t for t in textos if t), LEXICO_MACRO)
     umbral = 1 if source in FUENTES_CON_BYPASS_MACRO else MIN_TERMINOS_MACRO
     return len(encontrados) >= umbral
 
