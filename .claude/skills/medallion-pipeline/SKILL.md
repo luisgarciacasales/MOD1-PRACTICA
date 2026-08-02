@@ -35,16 +35,31 @@ Noticias (texto): BMV Eventos Relevantes (scraping ligero), El Financiero, El Ec
 
 ## Ejecución (dentro de contenedores en mi-pc)
 
-Los comandos concretos dependen del scaffold (aún no creado). Patrón esperado:
+Los módulos viven bajo `src.pipeline.*`. Atajos equivalentes en el `Makefile`
+(`make ingest`, `make migrate`, `make test`), que funcionan desde el Mac y desde
+el propio servidor.
+
 ```bash
 # vía remote-ops / deploy:
-ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m pipeline.ingest --date <YYYY-MM-DD>'
-ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m pipeline.validate --date <YYYY-MM-DD>'
-ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m pipeline.enrich --batch-size 8'
-ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m pipeline.correlate --date <YYYY-MM-DD>'
-ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m pipeline.index'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.migrate'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.ingest --date <YYYY-MM-DD> [--source <id>] [--dry-run]'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.validate --date <YYYY-MM-DD>'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.enrich --batch-size 8'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.correlate --date <YYYY-MM-DD>'
+ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app python -m src.pipeline.index'
 ```
-> Cuando definas estos módulos, mantén los nombres/flags estables: los skills **acceptance-verify** y las docs los referencian.
+> Mantén los nombres/flags estables: **acceptance-verify** y las docs los referencian.
+
+## Estado de implementación
+
+| Etapa | Estado |
+| --- | --- |
+| `migrate` · `ingest` | **Implementadas.** |
+| `validate` · `enrich` · `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+
+**Salud real de las fuentes** (verificada 2026-08-01, detalle en ADR-11): funcionan `financiero`, `bloomberg`, `finnovista` y `yahoo_finance`. Fallan en soft `economista` (403, WAF anti-datacenter) y `bmv_eventos` (SPA sin endpoint accesible). `banxico` requiere `BANXICO_TOKEN` en el `.env` del servidor.
+
+Los feeds generales de El Financiero y Bloomberg Línea traen **noticias no financieras** mezcladas (espectáculos, deportes). Es correcto en Bronze —que no selecciona— pero la validación debe contar con ello: gran parte de esas entradas caerá en `silver_dead_letters` con `MISSING_ENTITY`, que es el comportamiento esperado, no un fallo.
 
 ## SLAs objetivo (§7 del PRD)
 
