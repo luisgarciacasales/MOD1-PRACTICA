@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -124,6 +124,9 @@ tunnel: ## Túnel SSH: Postgres remoto → 127.0.0.1:$(PG_PORT) en el Mac — SO
 	ssh -N -L $(PG_PORT):127.0.0.1:5432 $(REMOTE)
 
 ## --- Pipeline ---------------------------------------------------------------
+
+validate: ## Valida Bronze y carga Silver (uso: make validate ARGS="--date 2026-08-02")
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.validate $(ARGS)'
 
 ingest: ## Ingesta las 5 fuentes hacia Bronze (uso: make ingest ARGS="--dry-run")
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest $(ARGS)'

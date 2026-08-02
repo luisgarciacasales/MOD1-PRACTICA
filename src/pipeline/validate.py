@@ -1,22 +1,289 @@
-"""Etapa 2-3 — Validación y carga idempotente (Bronze → Silver).
+"""Etapas 2-3 — Validación y carga idempotente (Bronze → Silver). PRD §4.4.
 
-Aplica los contratos Pydantic y enruta los rechazos a silver_dead_letters con
-su motivo. Los registros válidos entran con INSERT ... ON CONFLICT DO UPDATE
-sobre la clave natural, de modo que reprocesar el mismo lote da filas_nuevas = 0.
+Lee los lotes de Bronze, aplica los contratos de `src/contracts/` y carga con
+`ON CONFLICT`. Todo registro acaba en algún sitio: o en su tabla Silver, o en
+`silver_dead_letters` con un motivo tipado. Nunca se descarta en silencio.
 
-STUB DEL SCAFFOLD — implementación guiada por el skill `medallion-pipeline`.
+Bronze no se toca: esta etapa solo lee. Cualquier corrección se hace aquí o
+aguas abajo, jamás reescribiendo el lote original (PRD §6.1).
+
+    docker compose exec -T app python -m src.pipeline.validate
+    docker compose exec -T app python -m src.pipeline.validate --date 2026-08-02
+    docker compose exec -T app python -m src.pipeline.validate --source financiero
 """
 
-import sys
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+from src.config import get_settings
+from src.contracts import (
+    DeadLetter,
+    FintechDictEntry,
+    RejectionReason,
+    validar_macro,
+    validar_noticia,
+    validar_precio,
+)
+from src.pipeline import db
+from src.pipeline.bronze import leer_lote, listar_lotes
+from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_tickers
+
+FUENTES_NOTICIAS = {"bmv_eventos", "financiero", "economista", "bloomberg"}
 
 
-def main() -> int:
-    print(
-        "[validate] etapa no implementada — este es el andamiaje.\n"
-        "  Guía: .claude/skills/medallion-pipeline/SKILL.md",
-        file=sys.stderr,
+# --- Normalización Bronze → forma que espera el contrato -------------------
+
+
+def _texto_de_entrada(crudo: dict[str, Any]) -> str:
+    """El cuerpo de la noticia según lo que traiga el feed.
+
+    Los feeds no coinciden en dónde ponen el texto: unos usan `summary`, otros
+    `content[].value`, otros solo `description`. Se toma el más largo
+    disponible para no perder señal en la extracción léxica.
+    """
+    candidatos: list[str] = []
+    for clave in ("summary", "description", "subtitle"):
+        valor = crudo.get(clave)
+        if isinstance(valor, str):
+            candidatos.append(valor)
+
+    contenido = crudo.get("content")
+    if isinstance(contenido, list):
+        candidatos.extend(
+            c["value"] for c in contenido if isinstance(c, dict) and isinstance(c.get("value"), str)
+        )
+
+    return max(candidatos, key=len, default="")
+
+
+def _fecha_de_entrada(crudo: dict[str, Any]) -> str | None:
+    """`published_parsed` ya viene en ISO desde el serializador de rss.py; si
+    falta, se prueban las variantes textuales del feed."""
+    for clave in ("published_parsed", "updated_parsed", "published", "updated", "created"):
+        valor = crudo.get(clave)
+        if isinstance(valor, str) and valor.strip():
+            return valor
+    return None
+
+
+def normalizar_noticia(
+    crudo: dict[str, Any], *, fintechs: tuple[str, ...]
+) -> dict[str, Any]:
+    """Traduce una entrada cruda de Bronze a la forma del contrato SilverNews.
+
+    Aquí ocurre la extracción léxica: el feed no trae tickers etiquetados, así
+    que se identifican sobre el texto (ver `src/pipeline/extraccion.py`). El
+    contenido original no se modifica — solo se derivan campos nuevos.
+    """
+    titulo = str(crudo.get("title") or "")
+    cuerpo = _texto_de_entrada(crudo)
+
+    tickers = extraer_tickers(titulo, cuerpo)
+    entidades = extraer_entidades(titulo, cuerpo, fintechs=fintechs)
+    sector = extraer_sector(titulo, cuerpo)
+
+    return {
+        "source": crudo.get("source"),
+        "title": titulo,
+        # Si el feed no trae cuerpo, el titular hace de contenido: el contrato
+        # exige `content` no vacío y descartar por eso sería perder una noticia
+        # que sí es identificable.
+        "content": cuerpo or titulo,
+        "url": crudo.get("link") or crudo.get("href") or crudo.get("id") or "",
+        "published_at": _fecha_de_entrada(crudo),
+        "tickers": tickers or None,
+        "sector": sector,
+        "entities": entidades or None,
+    }
+
+
+def normalizar_macro(crudo: dict[str, Any]) -> dict[str, Any] | None:
+    """Serie del SIE → contrato MacroIndicator.
+
+    BANXICO entrega la fecha como dd/mm/aaaa y el valor como cadena, usando
+    "N/E" para los no disponibles. Bronze lo guardó tal cual (correcto); la
+    conversión ocurre aquí. Un "N/E" devuelve None y el llamador lo enruta a
+    cuarentena con motivo, en vez de convertirlo en un 0.0 que mentiría.
+    """
+    texto_fecha = str(crudo.get("fecha") or "")
+    texto_valor = str(crudo.get("dato") or "").replace(",", "").strip()
+    try:
+        dia, mes, anio = texto_fecha.split("/")
+        fecha = date(int(anio), int(mes), int(dia))
+        valor = float(texto_valor)
+    except (ValueError, AttributeError):
+        return None
+    return {"series_id": crudo.get("series_id"), "date": fecha, "value": valor}
+
+
+# --- Procesamiento por lote -------------------------------------------------
+
+
+def _cargar_fintechs(cur, lotes: list[Path]) -> tuple[int, tuple[str, ...]]:
+    """Carga el diccionario Finnovista y devuelve los nombres comerciales.
+
+    Se procesa primero porque las noticias lo necesitan para reconocer fintechs
+    como entidades.
+    """
+    nombres: list[str] = []
+    total = db.Carga()
+    for ruta in lotes:
+        meta, registros = leer_lote(ruta)
+        entradas = []
+        for crudo in registros:
+            datos = {k: v for k, v in crudo.items() if k != "source"}
+            try:
+                entrada = FintechDictEntry(**datos)
+            except Exception:  # noqa: BLE001 — el diccionario es semilla revisada
+                continue
+            entradas.append(entrada)
+            nombres.append(entrada.commercial_name)
+        total += db.cargar_fintech(cur, entradas)
+    return total.nuevas, tuple(nombres)
+
+
+def procesar_lote(
+    cur, ruta: Path, *, fintechs: tuple[str, ...]
+) -> tuple[db.Carga, int, Counter]:
+    """Valida y carga un lote. Devuelve (carga, rechazos, motivos)."""
+    meta, registros = leer_lote(ruta)
+    source = meta["source"]
+    batch_uuid = UUID(meta["batch_uuid"])
+
+    validos: list[Any] = []
+    rechazos: list[DeadLetter] = []
+    motivos: Counter = Counter()
+
+    for crudo in registros:
+        # Marcador de éxito parcial que inserta el adaptador de mercado; no es
+        # un registro de datos.
+        if crudo.get("_parciales"):
+            continue
+
+        if source in FUENTES_NOTICIAS:
+            resultado = validar_noticia(normalizar_noticia(crudo, fintechs=fintechs), batch_uuid)
+        elif source == "yahoo_finance":
+            resultado = validar_precio(
+                {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
+            )
+        elif source == "banxico":
+            normalizado = normalizar_macro(crudo)
+            resultado = (
+                validar_macro(normalizado, batch_uuid)
+                if normalizado
+                else DeadLetter(
+                    source=source,
+                    raw_payload=crudo,
+                    rejection_reason=RejectionReason.TYPE_MISMATCH,
+                    rejection_detail=f"fecha o dato no numérico: {crudo.get('dato')!r}",
+                    batch_uuid=batch_uuid,
+                )
+            )
+        else:
+            continue
+
+        if isinstance(resultado, DeadLetter):
+            rechazos.append(resultado)
+            motivos[resultado.rejection_reason.value] += 1
+        else:
+            validos.append(resultado)
+
+    carga = db.Carga()
+    if validos:
+        if source in FUENTES_NOTICIAS:
+            carga += db.cargar_noticias(cur, validos)
+        elif source == "yahoo_finance":
+            carga += db.cargar_precios(cur, validos)
+        elif source == "banxico":
+            carga += db.cargar_macro(cur, validos)
+
+    db.cargar_dead_letters(cur, rechazos)
+    return carga, len(rechazos), motivos
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="src.pipeline.validate",
+        description="Valida Bronze contra los contratos y carga Silver de forma idempotente.",
     )
-    return 1
+    parser.add_argument("--date", dest="fecha", default=None,
+                        help="Solo los lotes de esta fecha (YYYY-MM-DD).")
+    parser.add_argument("--source", dest="fuentes", action="append",
+                        help="Solo estas fuentes; repetible.")
+    args = parser.parse_args(argv)
+
+    fecha = date.fromisoformat(args.fecha) if args.fecha else None
+    raiz = Path(get_settings().bronze_path)
+
+    lotes = listar_lotes(raiz, fecha=fecha)
+    if args.fuentes:
+        lotes = [l for l in lotes if leer_lote(l)[0]["source"] in set(args.fuentes)]
+    if not lotes:
+        print("[validate] no hay lotes que procesar")
+        return 1
+
+    print(f"[validate] {len(lotes)} lotes · inicio {datetime.now(UTC).isoformat(timespec='seconds')}")
+
+    resumen: dict[str, db.Carga] = {}
+    rechazos_por_fuente: Counter = Counter()
+    motivos_totales: Counter = Counter()
+
+    with db.conectar() as conexion:
+        with conexion.cursor() as cur:
+            # El diccionario Finnovista va primero: las noticias lo necesitan
+            # para reconocer fintechs como entidades identificables.
+            lotes_fintech = [l for l in lotes if leer_lote(l)[0]["source"] == "finnovista"]
+            nuevas_fintech, fintechs = _cargar_fintechs(cur, lotes_fintech)
+            if lotes_fintech:
+                print(f"[validate] finnovista: {len(fintechs)} entradas ({nuevas_fintech} nuevas)")
+
+            for ruta in lotes:
+                meta = leer_lote(ruta)[0]
+                source = meta["source"]
+                if source == "finnovista":
+                    continue
+
+                carga, rechazos, motivos = procesar_lote(cur, ruta, fintechs=fintechs)
+                resumen.setdefault(source, db.Carga())
+                resumen[source] += carga
+                rechazos_por_fuente[source] += rechazos
+                motivos_totales.update(motivos)
+                print(
+                    f"[validate] {source}: {carga.nuevas} nuevas, "
+                    f"{carga.actualizadas} actualizadas, {rechazos} a cuarentena",
+                    flush=True,
+                )
+        conexion.commit()
+
+    # --- Resumen ------------------------------------------------------------
+    print()
+    print(f"{'FUENTE':<16} {'NUEVAS':>8} {'ACTUALIZ':>9} {'CUARENTENA':>11}")
+    print("-" * 48)
+    for source in sorted(resumen):
+        c = resumen[source]
+        print(f"{source:<16} {c.nuevas:>8} {c.actualizadas:>9} {rechazos_por_fuente[source]:>11}")
+    print("-" * 48)
+    total_nuevas = sum(c.nuevas for c in resumen.values())
+    print(f"{'TOTAL':<16} {total_nuevas:>8} "
+          f"{sum(c.actualizadas for c in resumen.values()):>9} "
+          f"{sum(rechazos_por_fuente.values()):>11}")
+
+    if motivos_totales:
+        print()
+        print("motivos de rechazo:")
+        for motivo, n in motivos_totales.most_common():
+            print(f"  {motivo:<18} {n}")
+
+    print()
+    print(f"[validate] filas_nuevas = {total_nuevas}  "
+          f"(reprocesar el mismo lote debe dar 0 — criterio PRD §8)")
+    return 0
 
 
 if __name__ == "__main__":
