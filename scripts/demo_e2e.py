@@ -114,6 +114,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Demostración de punta a punta.")
     parser.add_argument("--con-ingesta", action="store_true",
                         help="Ingiere antes de empezar (crea lote nuevo en Bronze).")
+    parser.add_argument(
+        "--desde-cero", action="store_true",
+        help="TRUNCA Silver y Gold antes de la pasada 1. Bronze NO se toca: es "
+             "inmutable y basta para reconstruirlo todo. Da la evidencia más "
+             "fuerte —pasada 1 inserta N filas, pasada 2 inserta 0— en vez de "
+             "dos pasadas que ya parten de tablas llenas.",
+    )
     parser.add_argument("--salida", default="/app/data/evidencia_e2e.md",
                         help="Dónde escribir el informe en Markdown.")
     args = parser.parse_args(argv)
@@ -186,6 +193,18 @@ def main(argv: list[str] | None = None) -> int:
         "filas nuevas de la segunda pasada no distinguirían «hay noticias "
         "nuevas» de «el UPSERT no funciona».")
     rep()
+
+    if args.desde_cero:
+        rep("Silver y Gold se vaciaron antes de la pasada 1, de modo que la "
+            "tabla siguiente muestra la carga completa y su reproceso. **Bronze "
+            "no se toca**: es inmutable y basta por sí solo para reconstruir "
+            "todo lo demás.")
+        rep()
+        with db.conectar() as conexion, conexion.cursor() as cur:
+            cur.execute("TRUNCATE " + ", ".join(TABLAS) + ", silver_dead_letters "
+                        ", silver_fintech_dict RESTART IDENTITY CASCADE")
+            conexion.commit()
+
     rep("```")
 
     with db.conectar() as conexion, conexion.cursor() as cur:
@@ -217,9 +236,15 @@ def main(argv: list[str] | None = None) -> int:
         ],
     )
     total_nuevas = sum(despues_2[t] - despues_1[t] for t in TABLAS)
+    cargadas_1 = sum(despues_1[t] - antes_1[t] for t in TABLAS)
     idempotente = total_nuevas == 0
-    rep(f"**Resultado: {'CUMPLE' if idempotente else 'NO CUMPLE'}** — la segunda "
-        f"pasada añadió {total_nuevas} filas en total.")
+    rep(f"**Resultado: {'CUMPLE' if idempotente else 'NO CUMPLE'}** — la pasada 1 "
+        f"cargó {cargadas_1} filas y la pasada 2 añadió **{total_nuevas}** "
+        f"reprocesando los mismos datos.")
+    rep()
+    rep("`enrich` solo procesa noticias con `enriched = false`, así que en la "
+        "segunda pasada no tiene trabajo y termina en décimas de segundo: eso "
+        "*es* su comportamiento idempotente, no una etapa saltada.")
     rep()
 
     # --- 4. Duplicados ------------------------------------------------------
