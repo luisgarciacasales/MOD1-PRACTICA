@@ -32,7 +32,8 @@ def test_devuelve_float32_para_faiss():
 def test_producto_interno_de_normalizados_es_coseno():
     a, b = np.array([[1.0, 0.0]]), np.array([[1.0, 1.0]])
     na, nb = _normalizar(a.astype(np.float32)), _normalizar(b.astype(np.float32))
-    assert float(na @ nb.T) == pytest.approx(np.cos(np.pi / 4), abs=1e-6)
+    # .item() y no float(): numpy ya no convierte arrays (1,1) con float().
+    assert (na @ nb.T).item() == pytest.approx(np.cos(np.pi / 4), abs=1e-6)
 
 
 def test_los_prefijos_de_e5_son_distintos():
