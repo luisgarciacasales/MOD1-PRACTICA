@@ -53,3 +53,11 @@ def test_dimension_incorrecta_falla_pronto():
 
 def test_dimension_correcta_pasa():
     verificar_dimension(np.zeros((2, 1024), dtype=np.float32))
+
+
+def test_el_embebedor_se_reutiliza_entre_llamadas():
+    """Regresión: sin caché, search_semantic recargaba 2 GB de modelo en CADA
+    consulta y el SLA de 500 ms era inalcanzable por construcción."""
+    from src.pipeline.embeddings import obtener_embebedor
+
+    assert obtener_embebedor() is obtener_embebedor()

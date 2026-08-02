@@ -15,6 +15,7 @@ PRD, sin tener que normalizar en cada consulta.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Protocol
 
 import numpy as np
@@ -101,8 +102,16 @@ class EmbebedorOllama:
         return self._embeber([texto])
 
 
+@lru_cache(maxsize=1)
 def obtener_embebedor() -> Embebedor:
-    """El backend configurado en el `.env` del servidor (ADR-9)."""
+    """El backend configurado en el `.env` del servidor (ADR-9).
+
+    **Cacheado a propósito.** Sin el `lru_cache`, cada llamada devolvía una
+    instancia nueva cuyo modelo se cargaba de cero: `search_semantic()` pagaba
+    ~2 s de carga en *cada* consulta y el SLA de 500 ms del PRD §7 era
+    inalcanzable por construcción. El modelo pesa 2 GB y es de solo lectura;
+    compartirlo en el proceso es lo correcto.
+    """
     settings = get_settings()
     if settings.embedding_backend == "ollama":
         return EmbebedorOllama()
