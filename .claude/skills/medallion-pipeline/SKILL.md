@@ -54,8 +54,14 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app p
 
 | Etapa | Estado |
 | --- | --- |
-| `migrate` · `ingest` · `validate` · `enrich` | **Implementadas.** |
-| `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+| `migrate` · `ingest` · `validate` · `enrich` · `transform` · `correlate` | **Implementadas.** |
+| `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+
+**Correlación — dos reglas que no son obvias:**
+- El **siguiente día hábil es estrictamente posterior** a la fecha de la noticia, incluso si esa fecha ya era hábil. Lo fija el criterio del §8 ("una noticia de viernes debe tener `price_date` = lunes") y evita contaminar la medición con el movimiento previo a la publicación.
+- **Directo y proxy conviven.** Una nota puede mencionar una emisora y una fintech a la vez; son dos señales distintas. Solo se omite el proxy cuyo ticker ya está cubierto de forma directa.
+
+**Cobertura real hoy:** de 119 noticias enriquecidas solo 5 correlacionan. No es un fallo del JOIN sino del corpus — 112 no mencionan ninguna emisora del universo ni una fintech con sector resoluble. Las noticias del día en curso quedan sin correlacionar hasta que cierre el mercado, y se recogen en el batch siguiente.
 
 **Enriquecimiento — dos cosas que hay que saber antes de tocarlo:**
 - `qwen3.5:9b` **razona**: sin `think: false` agota el presupuesto de tokens pensando y devuelve `content` vacío (ADR-12).
