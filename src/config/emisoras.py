@@ -43,18 +43,33 @@ ENTIDADES_FINANCIERAS: tuple[str, ...] = (
 # Léxico sectorial: si no hay ticker ni entidad, un sector identificable también
 # satisface el contrato. Los nombres coinciden con las claves de SECTOR_A_PROXY
 # donde aplica, para que el proxy ticker pueda resolverse aguas abajo.
+#
+# El ORDEN importa: `extraer_sector` devuelve la primera coincidencia, y los
+# sectores específicos van antes que los genéricos porque son los únicos que
+# permiten resolver un proxy ticker. Etiquetar como "banca" una nota que habla
+# de crédito al consumo perdería esa capacidad.
+#
+# Los plurales se listan explícitamente: la comparación usa fronteras de
+# palabra, así que "credito al consumo" NO coincide con "créditos al consumo".
 LEXICO_SECTORES: dict[str, tuple[str, ...]] = {
-    "banca_consumo": ("credito al consumo", "tarjeta de credito", "credito personal",
+    "banca_consumo": ("credito al consumo", "creditos al consumo",
+                      "tarjeta de credito", "tarjetas de credito",
+                      "credito personal", "creditos personales",
                       "banca de consumo", "credito revolvente"),
-    "captacion_ahorro": ("captacion", "cuenta de ahorro", "deposito a plazo",
+    "captacion_ahorro": ("captacion", "cuenta de ahorro", "cuentas de ahorro",
+                         "deposito a plazo", "depositos a plazo",
                          "pagare bancario", "ahorro voluntario"),
-    "credito_automotriz": ("credito automotriz", "financiamiento automotriz",
-                           "credito para auto"),
-    "pagos_digitales": ("pagos digitales", "terminal punto de venta", "tpv",
-                        "transferencia electronica", "codi", "dimo", "spei"),
-    "insurtech": ("seguros", "aseguradora", "poliza", "insurtech"),
+    "credito_automotriz": ("credito automotriz", "creditos automotrices",
+                           "financiamiento automotriz", "credito para auto"),
+    "pagos_digitales": ("pagos digitales", "pago digital",
+                        "terminal punto de venta", "terminales punto de venta",
+                        "tpv", "transferencia electronica",
+                        "transferencias electronicas", "codi", "dimo", "spei"),
+    "insurtech": ("seguros", "aseguradora", "aseguradoras", "poliza", "polizas",
+                  "insurtech"),
     "banca": ("banca multiple", "sistema financiero", "institucion de banca",
-              "cartera vencida", "indice de morosidad", "margen financiero"),
+              "instituciones de banca", "cartera vencida",
+              "indice de morosidad", "margen financiero"),
     "bursatil": ("bolsa mexicana de valores", "bmv", "biva", "indice de precios",
-                 "s&p/bmv ipc", "emisora", "oferta publica"),
+                 "s&p/bmv ipc", "emisora", "emisoras", "oferta publica"),
 }

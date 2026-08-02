@@ -214,6 +214,15 @@ def test_tickers_se_normalizan_y_deduplican():
     assert r.tickers == ["GFNORTE", "WALMEX"]
 
 
+def test_entidades_conservan_mayusculas_pero_deduplican():
+    """Las entidades son nombres propios: mayusculizarlas las deforma."""
+    r = validar_noticia(
+        noticia(entities=["Carlos Slim", "BBVA México", "carlos slim", " "]), BATCH
+    )
+    assert isinstance(r, SilverNews)
+    assert r.entities == ["Carlos Slim", "BBVA México"]
+
+
 def test_fecha_naive_se_asume_utc():
     r = validar_noticia(noticia(published_at="2026-07-31T21:30:00"), BATCH)
     assert isinstance(r, SilverNews)

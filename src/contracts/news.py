@@ -128,15 +128,34 @@ class SilverNews(BaseModel):
         # mejor que dejar que cada etapa improvise su propia suposición.
         return v.replace(tzinfo=UTC) if v.tzinfo is None else v.astimezone(UTC)
 
-    @field_validator("tickers", "entities")
+    @field_validator("tickers")
     @classmethod
-    def _limpiar_lista(cls, v: list[str] | None) -> list[str] | None:
+    def _limpiar_tickers(cls, v: list[str] | None) -> list[str] | None:
         if v is None:
             return None
         # dict.fromkeys en vez de set: deduplica preservando el orden, que es
         # lo que hace reproducible el contenido de la columna entre corridas.
         limpios = list(dict.fromkeys(x.strip().upper() for x in v if x and x.strip()))
         return limpios or None
+
+    @field_validator("entities")
+    @classmethod
+    def _limpiar_entidades(cls, v: list[str] | None) -> list[str] | None:
+        """Como los tickers pero **sin** pasar a mayúsculas.
+
+        Las entidades son nombres propios de personas y organizaciones
+        ("Carlos Slim", "BBVA México"); mayusculizarlos los deforma y no aporta
+        nada, porque no son claves de JOIN. La deduplicación sí es
+        insensible a mayúsculas, para que "Banxico" y "BANXICO" no convivan.
+        """
+        if v is None:
+            return None
+        vistos: dict[str, str] = {}
+        for bruto in v:
+            limpio = bruto.strip() if bruto else ""
+            if limpio:
+                vistos.setdefault(limpio.casefold(), limpio)
+        return list(vistos.values()) or None
 
     @model_validator(mode="after")
     def _integridad_semantica(self) -> SilverNews:

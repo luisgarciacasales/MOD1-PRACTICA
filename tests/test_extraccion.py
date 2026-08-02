@@ -51,8 +51,9 @@ def test_extrae_entidades_financieras():
 
 
 def test_reconoce_fintechs_del_diccionario():
+    """Las fintechs conservan su nombre tal como está en el diccionario."""
     entidades = extraer_entidades("Nu y Stori compiten", fintechs=("Nu", "Stori", "Klar"))
-    assert set(entidades) == {"nu", "stori"}
+    assert set(entidades) == {"Nu", "Stori"}
 
 
 def test_sector_especifico_gana_al_generico():
