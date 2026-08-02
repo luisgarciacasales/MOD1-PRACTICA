@@ -123,3 +123,34 @@ def test_despega_vallas_de_markdown():
     assert _despegar_vallas('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert _despegar_vallas('```\n{"a": 1}\n```') == '{"a": 1}'
     assert _despegar_vallas('{"a": 1}') == '{"a": 1}'
+
+
+def test_respaldo_lexico_de_sector_para_proxy():
+    """Si hay fintech sin sector, la noticia no correlaciona con ningún precio.
+    El prompt lo pide como regla obligatoria, pero un 9B la incumple."""
+    e = nueva()
+    aplicar_ma(
+        e,
+        {"fintechs": ["Nu"], "sector_afectado": None},
+        FINTECHS,
+        texto="Nu lanza una tarjeta de crédito sin anualidad",
+    )
+    assert e.fintechs_identified == ["Nu"]
+    assert e.sector_affected == "banca_consumo"
+
+
+def test_el_respaldo_no_pisa_la_respuesta_del_modelo():
+    e = nueva()
+    aplicar_ma(
+        e,
+        {"fintechs": ["Nu"], "sector_afectado": "pagos_digitales"},
+        FINTECHS,
+        texto="Nu lanza una tarjeta de crédito",
+    )
+    assert e.sector_affected == "pagos_digitales"
+
+
+def test_sin_fintech_no_se_inventa_sector():
+    e = nueva()
+    aplicar_ma(e, {"fintechs": []}, FINTECHS, texto="tarjeta de crédito de Banorte")
+    assert e.sector_affected is None

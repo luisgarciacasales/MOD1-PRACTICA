@@ -10,6 +10,11 @@ inventó el ticker "BANR" para Banorte. Todo campo que después vaya a hacer JOI
 —tickers, sectores— se enumera explícitamente en el prompt y se vuelve a
 validar en el código; el modelo elige de una lista, no escribe libremente.
 
+El catálogo de emisoras incluye **el símbolo y sus nombres comerciales**. Con
+solo los símbolos, el modelo devolvía siempre lista vacía: no tiene por qué
+saber que `GFNORTEO.MX` es Banorte o que `FEMSAUBD.MX` cubre a Oxxo. Enumerar
+los alias convierte la tarea de recordar en la de reconocer.
+
 Los prompts están en español porque el corpus es español (invariante 8) y
 porque pedir en inglés sobre texto en español añade una traducción implícita
 que el modelo hace mal con jerga financiera mexicana.
@@ -44,7 +49,8 @@ con confianza baja.
 """
 
 USUARIO_NER = """\
-TICKERS PERMITIDOS (usa exactamente estas cadenas):
+EMISORAS PERMITIDAS. Usa exactamente el símbolo de la izquierda; a la derecha \
+están los nombres con los que la noticia puede referirse a cada una:
 {tickers_permitidos}
 
 SECTORES PERMITIDOS (usa exactamente estas cadenas):
@@ -78,9 +84,13 @@ Reglas:
 - "es_evento_ma" es true solo ante una operación CONCRETA: adquisición, fusión \
 o alianza estratégica anunciada. Un rumor o un análisis especulativo NO cuenta.
 - Si "es_evento_ma" es false, "tipo_ma" debe ser "none".
-- "sector_afectado" es el segmento del mercado mexicano que se ve impactado. \
-Rellénalo SOBRE TODO cuando la noticia trate de una fintech que no cotiza en \
-bolsa: es lo que permite medir su efecto sobre las emisoras que sí cotizan.
+- "sector_afectado" es el segmento del mercado mexicano que se ve impactado.
+- REGLA OBLIGATORIA: si "fintechs" NO está vacío, "sector_afectado" NO puede \
+ser null. Ninguna de esas fintechs cotiza en la Bolsa Mexicana de Valores, así \
+que el sector es el ÚNICO camino para medir su impacto sobre las emisoras que \
+sí cotizan. Elige el sector del producto o servicio del que habla la noticia: \
+una tarjeta de crédito es "banca_consumo", una cuenta de ahorro es \
+"captacion_ahorro", una terminal de pago es "pagos_digitales".
 - Si nada aplica, usa false, "none", listas vacías y null.
 """
 

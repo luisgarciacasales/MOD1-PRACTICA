@@ -34,6 +34,7 @@ from src.config import get_settings
 from src.config.emisoras import ALIAS_EMISORAS
 from src.config.tickers import SECTORES_VALIDOS
 from src.pipeline import db
+from src.pipeline.extraccion import extraer_sector
 from src.pipeline.ollama import ClienteOllama, salud
 from src.prompts import (
     LIMITE_CUERPO_PROMPT,
@@ -109,7 +110,13 @@ def aplicar_ner(destino: Enriquecida, datos: dict[str, Any], fintechs: set[str])
     destino.sentiment_score = _numero_0_1(datos.get("confianza_sentimiento"))
 
 
-def aplicar_ma(destino: Enriquecida, datos: dict[str, Any], fintechs: set[str]) -> None:
+def aplicar_ma(
+    destino: Enriquecida,
+    datos: dict[str, Any],
+    fintechs: set[str],
+    *,
+    texto: str = "",
+) -> None:
     es_ma = bool(datos.get("es_evento_ma"))
     tipo = str(datos.get("tipo_ma", "none")).strip().lower()
     tipo = tipo if tipo in TIPOS_MA else "none"
@@ -135,6 +142,15 @@ def aplicar_ma(destino: Enriquecida, datos: dict[str, Any], fintechs: set[str]) 
     sector = datos.get("sector_afectado")
     sector = str(sector).strip() if isinstance(sector, str) else ""
     destino.sector_affected = sector if sector in SECTORES_VALIDOS else None
+
+    # Red de seguridad para el proxy ticker (PRD §3.3). Si la noticia menciona
+    # una fintech que no cotiza y el modelo no dio sector, esa noticia no puede
+    # correlacionarse con NINGÚN precio: se pierde entera. El prompt ya lo pide
+    # como regla obligatoria, pero un 9B la incumple, así que se recae en el
+    # léxico, que es determinista. Solo se usa como respaldo — nunca pisa una
+    # respuesta válida del modelo.
+    if destino.fintechs_identified and destino.sector_affected is None and texto:
+        destino.sector_affected = extraer_sector(texto)
 
 
 # --- Inferencia -------------------------------------------------------------
@@ -171,7 +187,7 @@ async def enriquecer_una(
         resultado.errores.append(f"NER: {r_ner.error}")
 
     if r_ma.ok and r_ma.datos is not None:
-        aplicar_ma(resultado, r_ma.datos, fintechs)
+        aplicar_ma(resultado, r_ma.datos, fintechs, texto=f"{fila['title']} {cuerpo}")
     else:
         resultado.errores.append(f"MA: {r_ma.error}")
 
@@ -239,7 +255,12 @@ async def ejecutar(*, limite: int, reprocesar: bool) -> int:
         return 0
 
     catalogos = {
-        "tickers_permitidos": "\n".join(f"- {t}" for t in sorted(TICKERS_VALIDOS)),
+        # Símbolo + alias. Con solo los símbolos, el modelo devolvía siempre
+        # lista vacía: no puede saber que GFNORTEO.MX es Banorte.
+        "tickers_permitidos": "\n".join(
+            f"- {ticker} — {', '.join(alias)}"
+            for ticker, alias in sorted(ALIAS_EMISORAS.items())
+        ),
         "sectores_permitidos": "\n".join(f"- {s}" for s in sorted(SECTORES_VALIDOS)),
         "fintechs_permitidas": "\n".join(f"- {f}" for f in sorted(fintechs)) or "- (ninguna)",
     }
