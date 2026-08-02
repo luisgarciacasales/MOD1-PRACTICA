@@ -146,6 +146,10 @@ services:
       # Pruebas de los contratos: se ejecutan dentro del contenedor, que es
       # donde viven las dependencias.
       - ./tests:/app/tests:ro
+      # Datos de referencia versionados (diccionario Finnovista). Es semilla
+      # revisable en un diff, no dato operativo: por eso vive en el repo y no
+      # en data/.
+      - ./seed:/app/seed:ro
       # BRONZE/SILVER/GOLD. Bind mount al host para que los datos sobrevivan a
       # `compose down` y sean inspeccionables por SSH. Gitignorado (invariante 1).
       - ./data:/app/data

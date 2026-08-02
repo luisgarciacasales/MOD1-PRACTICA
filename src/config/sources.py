@@ -30,32 +30,43 @@ class Fuente(NamedTuple):
 
 FUENTES: tuple[Fuente, ...] = (
     # 3.1 — la fuente de menor estructura: tickers embebidos en texto libre.
+    # La página es una SPA: el listado lo pinta JavaScript y el HTML servido no
+    # trae tabla. Los endpoints internos probados devuelven 404 en el gateway
+    # WSO2. Es el riesgo nº3 del PRD §9 ("scraping BMV frágil", probabilidad
+    # Alta) materializándose; el fail-soft por fuente está para esto.
     Fuente(
         "bmv_eventos",
         "BMV — Eventos Relevantes",
         "noticias",
-        "https://www.bmv.com.mx/es/emisoras/eventos-relevantes",
+        "https://www.bmv.com.mx/es/Grupo_BMV/Eventos_relevantes",
     ),
     # 3.2 — RSS de medios financieros: más limpios que la propia BMV.
-    # URLs a confirmar contra el feed vivo durante la implementación de la
-    # ingesta; se dejan aquí como punto único de configuración.
+    # URLs verificadas desde el contenedor el 2026-08-01 (ver ADR-11).
     Fuente(
         "financiero",
-        "El Financiero — Mercados",
+        "El Financiero",
         "noticias",
-        "https://www.elfinanciero.com.mx/arc/outboundfeeds/rss/category/mercados/",
+        # El feed por categoría (…/category/mercados/) devolvía solo 2 entradas;
+        # el general devuelve 100. Se filtra aguas abajo, no en la ingesta:
+        # Bronze es inmutable y no aplica criterios de selección.
+        "https://www.elfinanciero.com.mx/rss/",
     ),
     Fuente(
         "economista",
         "El Economista — Mercados",
         "noticias",
+        # HTTP 403 desde el servidor incluso con cabeceras de navegador: el WAF
+        # bloquea IPs de datacenter. Se deja configurada porque el fail-soft la
+        # cubre y puede desbloquearse desde otra red o con otro acuerdo de uso.
         "https://www.eleconomista.com.mx/rss/mercados",
     ),
     Fuente(
         "bloomberg",
         "Bloomberg Línea México",
         "noticias",
-        "https://www.bloomberglinea.com/arc/outboundfeeds/rss/",
+        # El sufijo ?outputType=xml es imprescindible: sin él, el mismo path
+        # devuelve 404.
+        "https://www.bloomberglinea.com/arc/outboundfeeds/rss/?outputType=xml",
     ),
     # 3.3 — diccionario estático, carga única con actualización manual.
     Fuente("finnovista", "Finnovista Radar Fintech México", "diccionario", None),

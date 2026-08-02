@@ -34,6 +34,8 @@ aiohttp~=3.10
 pandas-market-calendars~=4.4
 pandas~=2.2
 numpy~=2.1
+# Motor de Parquet: Bronze persiste cada lote en JSON *y* columnar (PRD §5.1).
+pyarrow~=18.0
 
 # --- Capa Gold: índice vectorial ---
 # faiss-cpu, no faiss-gpu: el índice es IndexFlatIP sobre ≤500 vectores/lote

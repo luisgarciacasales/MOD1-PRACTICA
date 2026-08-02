@@ -7,11 +7,19 @@ aquí solo vive la tabla que traduce ese sector a un ticker que sí cotiza.
 
 # Emisoras prioritarias de Fase 1 (PRD §3.4). El sufijo .MX es el que Yahoo
 # Finance usa para la Bolsa Mexicana de Valores.
+#
+# CORRECCIÓN RESPECTO AL PRD (verificado contra Yahoo el 2026-08-01, ADR-11):
+# tres de los ocho símbolos del documento no existen en Yahoo y devuelven serie
+# vacía. Yahoo exige la **serie accionaria** en el símbolo:
+#   GFNORTE.MX → GFNORTEO.MX   (Banorte cotiza la serie O)
+#   BBAJIO.MX  → BBAJIOO.MX    (Banco del Bajío, serie O)
+#   AMXL.MX    → AMXB.MX       (América Móvil convirtió las series L a B)
+# Los otros cinco son correctos tal cual.
 TICKERS_PRIORITARIOS: tuple[str, ...] = (
-    "GFNORTE.MX",
-    "BBAJIO.MX",
+    "GFNORTEO.MX",
+    "BBAJIOO.MX",
     "WALMEX.MX",
-    "AMXL.MX",
+    "AMXB.MX",
     "GMEXICOB.MX",
     "CEMEXCPO.MX",
     "FEMSAUBD.MX",
@@ -30,15 +38,17 @@ VENTANA_HISTORICA_ANIOS: int = 2
 #
 # Cuando se usa esta tabla, el registro resultante lleva is_proxy = true y
 # conserva la fintech original en `original_fintech` para no perder trazabilidad.
+# Los símbolos llevan la serie accionaria por la misma razón que arriba: deben
+# poder hacer JOIN con lo que realmente se ingirió de Yahoo.
 SECTOR_A_PROXY: dict[str, tuple[str, ...]] = {
     # Mayor exposición a crédito al consumo y tarjetas.
-    "banca_consumo": ("GFNORTE.MX", "BBAJIO.MX"),
+    "banca_consumo": ("GFNORTEO.MX", "BBAJIOO.MX"),
     # Líder en captación tradicional en México.
-    "captacion_ahorro": ("GFNORTE.MX",),
+    "captacion_ahorro": ("GFNORTEO.MX",),
     # Fuerte presencia en financiamiento automotriz.
-    "credito_automotriz": ("BBAJIO.MX",),
+    "credito_automotriz": ("BBAJIOO.MX",),
     # Propietario de redes de TPV y banca digital.
-    "pagos_digitales": ("GFNORTE.MX",),
+    "pagos_digitales": ("GFNORTEO.MX",),
     # Proxy reconocidamente débil: WALMEX no es una aseguradora. El PRD lo marca
     # para revisión en Fase 2, cuando se busque una aseguradora listada (GNP).
     "insurtech": ("WALMEX.MX",),

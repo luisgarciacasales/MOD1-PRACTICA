@@ -1,0 +1,22 @@
+[
+  {"legal_name": "Nu México Financiera, S.A. de C.V., S.F.P.", "commercial_name": "Nu", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Servicios Financieros Ualá México, S.A. de C.V., SOFOM E.N.R.", "commercial_name": "Ualá", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Stori Card, S.A.P.I. de C.V.", "commercial_name": "Stori", "ticker": null, "sector": "tarjetas", "country": "MX"},
+  {"legal_name": "Klar Technologies, S.A.P.I. de C.V.", "commercial_name": "Klar", "ticker": null, "sector": "lending", "country": "MX"},
+  {"legal_name": "Fondeadora, S.A.P.I. de C.V.", "commercial_name": "Fondeadora", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Albo Servicios Financieros, S.A. de C.V.", "commercial_name": "Albo", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Hey Banco, S.A., Institución de Banca Múltiple", "commercial_name": "Hey Banco", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Clip (PayClip, S. de R.L. de C.V.)", "commercial_name": "Clip", "ticker": null, "sector": "payments", "country": "MX"},
+  {"legal_name": "Conekta Servicios Digitales, S.A. de C.V.", "commercial_name": "Conekta", "ticker": null, "sector": "payments", "country": "MX"},
+  {"legal_name": "Kueski, S.A.P.I. de C.V., SOFOM E.N.R.", "commercial_name": "Kueski", "ticker": null, "sector": "lending", "country": "MX"},
+  {"legal_name": "Credijusto (Covalto), S.A.P.I. de C.V.", "commercial_name": "Covalto", "ticker": null, "sector": "lending", "country": "MX"},
+  {"legal_name": "Konfío, S.A.P.I. de C.V.", "commercial_name": "Konfío", "ticker": null, "sector": "lending", "country": "MX"},
+  {"legal_name": "Clara Technologies, S.A.P.I. de C.V.", "commercial_name": "Clara", "ticker": null, "sector": "tarjetas", "country": "MX"},
+  {"legal_name": "Bitso Operaciones, S.A.P.I. de C.V.", "commercial_name": "Bitso", "ticker": null, "sector": "cripto", "country": "MX"},
+  {"legal_name": "Crabi Seguros, S.A. de C.V.", "commercial_name": "Crabi", "ticker": null, "sector": "insurtech", "country": "MX"},
+  {"legal_name": "Sofía Salud, S.A.P.I. de C.V.", "commercial_name": "Sofía", "ticker": null, "sector": "insurtech", "country": "MX"},
+  {"legal_name": "Mercado Pago México, S. de R.L. de C.V.", "commercial_name": "Mercado Pago", "ticker": null, "sector": "payments", "country": "MX"},
+  {"legal_name": "Finsus (Financiera Sustentable), S.A. de C.V., S.F.P.", "commercial_name": "Finsus", "ticker": null, "sector": "captacion", "country": "MX"},
+  {"legal_name": "Nelo Technologies, S.A.P.I. de C.V.", "commercial_name": "Nelo", "ticker": null, "sector": "lending", "country": "MX"},
+  {"legal_name": "Aplazo, S.A.P.I. de C.V.", "commercial_name": "Aplazo", "ticker": null, "sector": "lending", "country": "MX"}
+]

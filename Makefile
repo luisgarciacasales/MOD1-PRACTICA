@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -122,6 +122,14 @@ tunnel: ## Túnel SSH: Postgres remoto → 127.0.0.1:$(PG_PORT) en el Mac — SO
 	$(call solo_mac,en el servidor el puerto ya es local en 127.0.0.1:5432)
 	@echo "Postgres de mi-pc disponible en 127.0.0.1:$(PG_PORT) — Ctrl-C para cerrar"
 	ssh -N -L $(PG_PORT):127.0.0.1:5432 $(REMOTE)
+
+## --- Pipeline ---------------------------------------------------------------
+
+ingest: ## Ingesta las 5 fuentes hacia Bronze (uso: make ingest ARGS="--dry-run")
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest $(ARGS)'
+
+bronze: ## Inventario de lotes en Bronze
+	$(RUN) 'cd $(DIR) && find data/bronze -name metadata.json -printf "%h\n" 2>/dev/null | sed "s|data/bronze/||" | sort || echo "(Bronze vacío)"'
 
 ## --- Esquema y pruebas ------------------------------------------------------
 
