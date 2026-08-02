@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -127,6 +127,12 @@ tunnel: ## Túnel SSH: Postgres remoto → 127.0.0.1:$(PG_PORT) en el Mac — SO
 
 enrich: ## Enriquecimiento NLP con Ollama (uso: make enrich ARGS="--limit 10")
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.enrich $(ARGS)'
+
+transform: ## Métricas derivadas de mercado y macro (Silver -> Gold)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.transform'
+
+correlate: ## JOIN temporal noticias<->precios con calendario XMEX
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.correlate $(ARGS)'
 
 validate: ## Valida Bronze y carga Silver (uso: make validate ARGS="--date 2026-08-02")
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.validate $(ARGS)'
