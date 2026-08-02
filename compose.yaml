@@ -150,6 +150,8 @@ services:
       # revisable en un diff, no dato operativo: por eso vive en el repo y no
       # en data/.
       - ./seed:/app/seed:ro
+      # Demostración de punta a punta (entregable de la práctica).
+      - ./scripts:/app/scripts:ro
       # BRONZE/SILVER/GOLD. Bind mount al host para que los datos sobrevivan a
       # `compose down` y sean inspeccionables por SSH. Gitignorado (invariante 1).
       - ./data:/app/data

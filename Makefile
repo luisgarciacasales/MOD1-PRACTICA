@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate index search bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate index search demo evidencia bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -159,6 +159,14 @@ test: ## Ejecuta las pruebas de los contratos dentro del contenedor
 	$(RUN) '$(COMPOSE) exec -T app python -m pytest tests/ -q'
 
 ## --- Aceptación -------------------------------------------------------------
+
+demo: ## Demostración de punta a punta 2x + tabla de evidencia (entregable)
+	$(RUN) '$(COMPOSE) exec -T app python scripts/demo_e2e.py $(ARGS)'
+
+evidencia: ## Trae el informe de evidencia del servidor al Mac
+	$(call solo_mac,el informe se copia DESDE el servidor)
+	scp $(REMOTE):$(REMOTE_DIR)/data/evidencia_e2e.md ./evidencia_e2e.md
+	@echo "Escrito en ./evidencia_e2e.md (gitignorado si lo prefieres fuera del repo)"
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'

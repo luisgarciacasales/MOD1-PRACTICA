@@ -42,6 +42,7 @@ COPY src/ /app/src/
 COPY sql/ /app/sql/
 COPY tests/ /app/tests/
 COPY seed/ /app/seed/
+COPY scripts/ /app/scripts/
 
 # data/ es un bind mount en runtime; se crea aquí con el ownership correcto para
 # que el primer arranque no falle si el host aún no tiene los subdirectorios.
