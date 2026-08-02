@@ -51,7 +51,7 @@ define solo_mac
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate index search bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -143,6 +143,13 @@ ingest: ## Ingesta las 5 fuentes hacia Bronze (uso: make ingest ARGS="--dry-run"
 bronze: ## Inventario de lotes en Bronze
 	$(RUN) 'cd $(DIR) && find data/bronze -name metadata.json -printf "%h\n" 2>/dev/null | sed "s|data/bronze/||" | sort || echo "(Bronze vacío)"'
 
+index: ## Vectoriza y construye el índice FAISS
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.index $(ARGS)'
+
+search: ## Búsqueda semántica (uso: make search Q="tasas de Banxico")
+	@test -n "$(Q)" || (echo 'ERROR: usa make search Q="tu consulta"'; exit 1)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.search "$(Q)"'
+
 ## --- Esquema y pruebas ------------------------------------------------------
 
 migrate: ## Aplica las migraciones SQL de sql/ (idempotente)
@@ -154,6 +161,4 @@ test: ## Ejecuta las pruebas de los contratos dentro del contenedor
 ## --- Aceptación -------------------------------------------------------------
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
-	@echo "Ver .claude/skills/acceptance-verify/SKILL.md — checks aún no implementados"
-	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify' || \
-		echo "(pendiente: src/pipeline/verify.py es un stub del scaffold)"
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'
