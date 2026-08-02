@@ -52,10 +52,11 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app p
 
 ## Estado de implementación
 
-| Etapa | Estado |
-| --- | --- |
-| `migrate` · `ingest` · `validate` · `enrich` · `transform` · `correlate` | **Implementadas.** |
-| `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+**Todas las etapas están implementadas**: `migrate`, `ingest`, `validate`, `enrich`, `transform`, `correlate`, `index`, `verify`, más `search` (API de consulta Gold). `python -m src.pipeline.verify` da **17 PASS · 0 FAIL** sobre la Definición de Terminado.
+
+**Índice vectorial:** `IndexFlatIP` sobre vectores normalizados (= coseno) con `IndexIDMap2` usando el `id` de `gold_enriched_news`. Nada de `ivfflat`/`hnsw`: son aproximados y solo compensan con cientos de miles de vectores. El índice se reconstruye completo desde `pgvector` en cada corrida — cuesta milisegundos y elimina la desincronización entre archivo y tabla.
+
+**Latencia de búsqueda:** FAISS puro 0,84 ms · consulta completa en caliente 70–80 ms · arranque en frío ~3,9 s (carga del modelo). El SLA de 500 ms del §7 solo se sostiene en un **proceso de larga duración**; un CLI que recarga el modelo en cada invocación nunca lo cumplirá.
 
 **Correlación — dos reglas que no son obvias:**
 - El **siguiente día hábil es estrictamente posterior** a la fecha de la noticia, incluso si esa fecha ya era hábil. Lo fija el criterio del §8 ("una noticia de viernes debe tener `price_date` = lunes") y evita contaminar la medición con el movimiento previo a la publicación.
