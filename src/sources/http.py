@@ -37,14 +37,19 @@ def sesion_cacheada(ttl_segundos: int, *, nombre: str) -> requests_cache.CachedS
     ruta.parent.mkdir(parents=True, exist_ok=True)
 
     sesion = requests_cache.CachedSession(
-        cache_name=str(ruta.with_suffix("")),
+        cache_name=f"{ruta.with_suffix('')}_{nombre}",
         backend="sqlite",
         expire_after=ttl_segundos,
         # Solo se cachean las respuestas buenas: guardar un 403 o un 500
         # convertiría un fallo transitorio en uno persistente durante el TTL.
         allowable_codes=(200,),
         stale_if_error=True,
-        namespace=nombre,
+        # La clave de caché incluye el Accept. Sin esto, una API que negocia
+        # contenido —como el SIE de BANXICO, que sirve XML o JSON en la MISMA
+        # URL— envenena el caché: la primera respuesta XML se devuelve luego a
+        # quien pide JSON, y el fallo aparece como un JSONDecodeError sobre un
+        # HTTP 200 que no se parece en nada a su causa.
+        match_headers=["Accept"],
     )
     sesion.headers.update(CABECERAS)
     return sesion

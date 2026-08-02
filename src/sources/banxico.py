@@ -28,8 +28,11 @@ TIMEOUT = 25
 # como XML y el .json() revienta con JSONDecodeError.
 ACEPTA_JSON = {"Accept": "application/json"}
 
-# BANXICO espera las fechas en dd/mm/aaaa, no en ISO.
-FORMATO_FECHA_SIE = "%d/%m/%Y"
+# El rango va en la RUTA como aaaa-mm-dd. Ojo con la asimetría: la API devuelve
+# las fechas de los datos en dd/mm/aaaa, pero las espera en ISO en la URL. Usar
+# dd/mm/aaaa aquí no da 400 sino 404, porque las barras crean segmentos de ruta
+# de más y el recurso deja de existir.
+FORMATO_FECHA_SIE = "%Y-%m-%d"
 
 
 def ingerir(*, series: tuple[SerieBanxico, ...] = SERIES) -> ResultadoFuente:
