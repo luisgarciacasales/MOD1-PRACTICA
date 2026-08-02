@@ -165,8 +165,8 @@ demo: ## Demostración de punta a punta 2x + tabla de evidencia (entregable)
 
 evidencia: ## Trae el informe de evidencia del servidor al Mac
 	$(call solo_mac,el informe se copia DESDE el servidor)
-	scp $(REMOTE):$(REMOTE_DIR)/data/evidencia_e2e.md ./evidencia_e2e.md
-	@echo "Escrito en ./evidencia_e2e.md (gitignorado si lo prefieres fuera del repo)"
+	scp $(REMOTE):$(REMOTE_DIR)/data/evidencia_e2e.md ./docs/EVIDENCIA_E2E.md
+	@echo "Escrito en docs/EVIDENCIA_E2E.md — versionado como entregable"
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'
