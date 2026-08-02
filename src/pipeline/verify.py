@@ -281,9 +281,19 @@ def check_faiss() -> list[Check]:
 
     consulta = CONSULTAS_DEMO[0]
     try:
-        inicio = time.perf_counter()
+        # Primera llamada: carga el modelo de embeddings (~2 GB). Se cronometra
+        # aparte porque no es latencia de búsqueda sino arranque en frío, y
+        # mezclarlas daría un número que no describe ninguna de las dos cosas.
+        arranque = time.perf_counter()
         resultados = search_semantic(consulta, top_k=5)
-        ms = (time.perf_counter() - inicio) * 1000
+        ms_frio = (time.perf_counter() - arranque) * 1000
+
+        tiempos = []
+        for q in CONSULTAS_DEMO:
+            t = time.perf_counter()
+            search_semantic(q, top_k=5)
+            tiempos.append((time.perf_counter() - t) * 1000)
+        ms = sum(tiempos) / len(tiempos)
     except Exception as exc:  # noqa: BLE001
         return [*checks, Check("Gold — consulta semántica", FAIL, f"{type(exc).__name__}: {exc}")]
 
@@ -294,13 +304,14 @@ def check_faiss() -> list[Check]:
     checks.append(Check(
         "Gold — consulta semántica en español",
         PASS,
-        f'«{consulta}» → {len(resultados)} resultados en {ms:.0f} ms · '
-        f'top-1 [{primero.score:.3f}] «{primero.title[:52]}»',
+        f'«{consulta[:44]}…» → {len(resultados)} resultados · '
+        f'top-1 [{primero.score:.3f}] «{primero.title[:44]}»',
     ))
     checks.append(Check(
         "Gold — SLA búsqueda <500 ms",
         PASS if ms < 500 else WARN,
-        f"{ms:.0f} ms (incluye vectorizar la consulta)",
+        f"{ms:.0f} ms de media en {len(CONSULTAS_DEMO)} consultas en caliente "
+        f"(arranque en frío aparte: {ms_frio:.0f} ms, es la carga del modelo)",
     ))
     return checks
 
