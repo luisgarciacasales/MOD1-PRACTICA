@@ -46,9 +46,11 @@ FUENTES: tuple[Fuente, ...] = (
         "financiero",
         "El Financiero",
         "noticias",
-        # El feed por categoría (…/category/mercados/) devolvía solo 2 entradas;
-        # el general devuelve 100. Se filtra aguas abajo, no en la ingesta:
-        # Bronze es inmutable y no aplica criterios de selección.
+        # Aquí sí se usa el feed general, al revés que en Bloomberg Línea: las
+        # categorías de El Financiero están casi vacías (mercados 2 entradas,
+        # economía 3, empresas 1). El general da 100 con un 16% de señal, que
+        # en términos absolutos son 16 noticias frente a 2. Se filtra aguas
+        # abajo, nunca en la ingesta: Bronze no aplica criterios de selección.
         "https://www.elfinanciero.com.mx/rss/",
     ),
     Fuente(
@@ -62,11 +64,16 @@ FUENTES: tuple[Fuente, ...] = (
     ),
     Fuente(
         "bloomberg",
-        "Bloomberg Línea México",
+        "Bloomberg Línea — Mercados",
         "noticias",
         # El sufijo ?outputType=xml es imprescindible: sin él, el mismo path
         # devuelve 404.
-        "https://www.bloomberglinea.com/arc/outboundfeeds/rss/?outputType=xml",
+        #
+        # Categoría `mercados`, no el feed general. Medido sobre 100 entradas
+        # con la ruta real del pipeline: 69% llega a Silver frente al 55% del
+        # general, y 4 noticias con ticker identificado frente a 1. El general
+        # mezcla espectáculos y deportes, y además es panregional.
+        "https://www.bloomberglinea.com/arc/outboundfeeds/rss/category/mercados/?outputType=xml",
     ),
     # 3.3 — diccionario estático, carga única con actualización manual.
     Fuente("finnovista", "Finnovista Radar Fintech México", "diccionario", None),
