@@ -112,15 +112,45 @@ def test_proxy_cuando_la_fintech_no_cotiza():
     assert all(x["sector_affected"] == "banca_consumo" for x in r)
 
 
-def test_el_proxy_sustituye_no_se_suma():
-    """Si ya hay emisora directa, medir además su sector duplicaría la señal."""
+def test_directo_y_proxy_conviven_si_son_emisoras_distintas():
+    """Caso real del corpus: una nota menciona FEMSA y Mercado Pago. Son dos
+    señales distintas —impacto directo e impacto sectorial— y perder la segunda
+    dejaría el proxy sin usar."""
+    r = objetivos(
+        fila(lex_tickers=["FEMSAUBD.MX"], lex_entities=["Mercado Pago"],
+             lex_sector="pagos_digitales"),
+        FINTECHS | {"Mercado Pago"},
+    )
+    directos = [x for x in r if not x["is_proxy"]]
+    proxies = [x for x in r if x["is_proxy"]]
+    assert [x["ticker"] for x in directos] == ["FEMSAUBD.MX"]
+    assert [x["ticker"] for x in proxies] == ["GFNORTEO.MX"]
+    assert proxies[0]["original_fintech"] == "Mercado Pago"
+
+
+def test_el_proxy_no_duplica_un_ticker_ya_directo():
+    """Medir el sector de Banorte sobre Banorte no añade nada, y chocaría con
+    la clave única (news_guid, ticker, price_date)."""
+    r = objetivos(
+        fila(lex_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
+             sector_affected="captacion_ahorro"),  # su proxy es GFNORTEO.MX
+        FINTECHS,
+    )
+    assert len(r) == 1
+    assert r[0]["is_proxy"] is False
+
+
+def test_proxy_parcial_cuando_solo_uno_coincide():
+    """banca_consumo mapea a dos emisoras; si una ya es directa, entra la otra."""
     r = objetivos(
         fila(lex_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
              sector_affected="banca_consumo"),
         FINTECHS,
     )
-    assert len(r) == 1
-    assert r[0]["is_proxy"] is False
+    assert {(x["ticker"], x["is_proxy"]) for x in r} == {
+        ("GFNORTEO.MX", False),
+        ("BBAJIOO.MX", True),
+    }
 
 
 def test_fintech_detectada_por_el_lexico_de_silver():

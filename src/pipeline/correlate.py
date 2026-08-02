@@ -83,20 +83,25 @@ RETURNING (xmax = 0) AS insertada
 def objetivos(fila: dict[str, Any], fintechs_conocidas: set[str]) -> list[dict[str, Any]]:
     """Contra qué tickers se debe correlacionar esta noticia.
 
-    Prioridad: si hay emisora directa, se usa esa. El proxy es un **sustituto**
-    para cuando no hay ninguna, no un añadido — si la noticia ya menciona a
-    Banorte, medir además su sector sobre Banorte duplicaría la misma señal.
+    Las dos modalidades del PRD §4.4 paso 6 **conviven**: una misma noticia
+    puede mencionar a FEMSA y a Mercado Pago, y ahí hay dos señales distintas
+    —el impacto directo sobre FEMSA y el indirecto sobre la banca por el lado
+    de pagos digitales—. Emitir solo la directa perdería la segunda.
+
+    Lo único que se evita es la duplicación real: si el ticker proxy coincide
+    con uno ya cubierto de forma directa, se omite. Medir el sector de Banorte
+    sobre Banorte cuando la noticia ya habla de Banorte no añade información, y
+    además chocaría con la clave única (news_guid, ticker, price_date).
     """
     directos = {
         t for t in (fila["ner_tickers"] or []) + (fila["lex_tickers"] or [])
         if t in TICKERS_VALIDOS
     }
-    if directos:
-        return [
-            {"ticker": t, "is_proxy": False, "proxy_ticker": None,
-             "original_fintech": None, "sector_affected": None}
-            for t in sorted(directos)
-        ]
+    salida = [
+        {"ticker": t, "is_proxy": False, "proxy_ticker": None,
+         "original_fintech": None, "sector_affected": None}
+        for t in sorted(directos)
+    ]
 
     # --- Proxy ticker (PRD §3.3) --------------------------------------------
     detectadas = list(fila["fintechs_identified"] or [])
@@ -105,20 +110,22 @@ def objetivos(fila: dict[str, Any], fintechs_conocidas: set[str]) -> list[dict[s
         # los nombres del diccionario Finnovista.
         detectadas = [e for e in (fila["lex_entities"] or []) if e in fintechs_conocidas]
     if not detectadas:
-        return []
+        return salida
 
     sector = fila["sector_affected"] or fila["lex_sector"]
     proxies = SECTOR_A_PROXY.get(sector or "")
     if not proxies:
         # Fintech sin sector resoluble: no hay forma honesta de asignarle un
-        # precio. Se deja sin correlacionar en vez de inventar una emisora.
-        return []
+        # precio. Se deja sin proxy en vez de inventar una emisora.
+        return salida
 
-    return [
+    salida.extend(
         {"ticker": p, "is_proxy": True, "proxy_ticker": p,
          "original_fintech": detectadas[0], "sector_affected": sector}
         for p in proxies
-    ]
+        if p not in directos
+    )
+    return salida
 
 
 def _macro_en(cur, fecha: date) -> dict[str, Any]:
