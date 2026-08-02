@@ -7,7 +7,12 @@ description: Crear o extender la estructura del servicio medallón MOD1-PRACTICA
 
 Genera el esqueleto del proyecto siguiendo las convenciones ya establecidas en `~/augmented/services/` (observadas en `lab-ollama`, `lab-nlp-fomc`). **No** implementa lógica de pipeline (eso lo guía `medallion-pipeline`); solo el andamiaje.
 
-> Estado actual: el arnés está creado, el scaffold **aún no**. Este skill es la guía para materializarlo cuando el usuario lo pida.
+> Estado actual: el scaffold **ya está materializado** (compose.yaml, docker/Dockerfile, requirements.txt, Makefile, README_MAC.md, `src/{config,contracts,pipeline,sources}`). Usa este skill para **extenderlo** manteniendo las convenciones, no para recrearlo.
+>
+> Desviaciones deliberadas del layout de abajo, ya documentadas en el `compose.yaml`:
+> - **`pgvector/pgvector:pg15`** en lugar de `postgres:15` puro — el PRD §5.3 declara `embedding: vector(1024)`.
+> - **`postgres` no usa `user: ${UID}:${GID}`** — initdb falla sobre un volumen nombrado si se le fuerza el UID del host. La convención aplica al servicio `app`, que sí bind-montea `./data`.
+> - **`data/` se crea con `make init`** en el servidor antes del primer `up`, no con `.gitkeep`: git no desciende a un directorio excluido, y si Docker crea el bind mount lo hace como root.
 
 ## Convenciones del servidor (respétalas)
 
