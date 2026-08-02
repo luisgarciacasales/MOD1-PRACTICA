@@ -1,0 +1,1 @@
+../../.claude/skills/scaffold-service/SKILL.md

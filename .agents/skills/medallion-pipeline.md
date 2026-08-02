@@ -1,0 +1,1 @@
+../../.claude/skills/medallion-pipeline/SKILL.md

@@ -1,0 +1,1 @@
+../../.claude/skills/data-contracts/SKILL.md

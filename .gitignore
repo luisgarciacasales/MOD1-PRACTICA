@@ -1,1 +1,40 @@
+# Frontera de git (invariante 1 · ADR-3):
+# git versiona SOLO código, compose.yaml, config, prompts y docs.
+# Datos y secretos viven exclusivamente en mi-pc y NUNCA entran al repo.
+
+# --- Secretos (invariante 3: .env es manual y solo existe en mi-pc) ---
+.env
+.env.local
+*.pem
+*.key
+
+# --- Datos: capas del medallón (Bronze inmutable, Silver, Gold) ---
+data/
+!data/.gitkeep
+
+# --- Artefactos derivados: índice FAISS y cachés ---
+*.index
+*.faiss
+*.sqlite
+*.sqlite3
+requests_cache.*
+
+# --- Volúmenes de PostgreSQL ---
+pgdata/
+postgres-data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# --- Entorno local del Mac ---
 .envrc
+.direnv/
+.DS_Store
