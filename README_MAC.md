@@ -4,11 +4,15 @@ Cómo trabajar este proyecto desde el Mac sabiendo que **nada se ejecuta aquí**
 el código se edita en el Mac y corre en `mi-pc`. Contexto de producto en
 `docs/PRD.md`; decisiones del arnés en `docs/HARNESS.md`.
 
-> **El Makefile funciona en los dos lados.** Detecta el hostname: en el Mac cada
-> comando viaja por `ssh mi-pc`; en el propio servidor se ejecuta en local sin
-> SSH (el alias `mi-pc` solo existe en el `~/.ssh/config` del Mac). Comprueba
-> dónde estás con `make where`. Los targets `push` y `tunnel` se bloquean con un
-> mensaje explícito si los invocas en el servidor.
+> **Este documento describe el despliegue en dos máquinas** (portátil de
+> desarrollo + servidor de ejecución), que es como se construyó el proyecto.
+> **Si solo quieres ejecutarlo en una máquina, el [`README.md`](README.md) es
+> tu documento** y puedes ignorar este.
+>
+> El Makefile detecta el contexto solo: comprueba si existe un alias SSH real
+> para `mi-pc`. Si existe → los comandos viajan por SSH; si no → se ejecutan en
+> local. Confírmalo con `make where`, y fuérzalo con `make MODO=local …` o
+> `make MODO=remoto REMOTE=otro-host …` si hiciera falta.
 
 ## Modelo mental en tres líneas
 

@@ -14,7 +14,7 @@ Ollama sobre una RTX 5080. Cero llamadas a APIs comerciales de LLM.
 | **Requisitos de producto** | [`docs/PRD.md`](docs/PRD.md) |
 | **Arquitectura y decisiones** | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) |
 | **Evidencia de ejecución** | [`docs/EVIDENCIA_E2E.md`](docs/EVIDENCIA_E2E.md) |
-| **Operación desde el Mac** | [`README_MAC.md`](README_MAC.md) |
+| **Operación en dos máquinas** | [`README_MAC.md`](README_MAC.md) |
 | **Arnés de agentes** | [`docs/HARNESS.md`](docs/HARNESS.md) · [`CLAUDE.md`](CLAUDE.md) |
 
 ## Flujo implementado
@@ -47,25 +47,76 @@ fuente y el resto del lote continúa. El detalle está en
 
 ## Puesta en marcha
 
-Requisitos: Docker con Compose v2 y un Ollama accesible en `:11434` con un
-modelo instruct de 7–9B cuantizado a 4 bits.
+### Requisitos
+
+| | Mínimo | Notas |
+|---|---|---|
+| Docker | Engine 24+ con Compose v2 | `docker compose version` |
+| Disco | ~8 GB | imagen ~4 GB (incluye torch) + modelo LLM ~5,6 GB + embeddings ~2,2 GB |
+| RAM | 8 GB | |
+| GPU | **Opcional pero muy recomendable** | NVIDIA con ≥6 GB de VRAM libres y NVIDIA Container Toolkit |
+
+Sin GPU todo funciona, pero la inferencia corre en CPU y el enriquecimiento
+tarda del orden de **diez veces más**. Es inherente al proyecto: el PRD exige
+un LLM local y descarta explícitamente las APIs comerciales.
+
+### Instalación
 
 ```bash
-git clone <repo> MOD1-PRACTICA && cd MOD1-PRACTICA
+git clone https://github.com/luisgarciacasales/MOD1-PRACTICA.git
+cd MOD1-PRACTICA
 
+make where                      # confirma que se ejecutará en local
 make init                       # crea data/ con el ownership correcto
-cp .env.example .env && $EDITOR .env    # POSTGRES_PASSWORD y BANXICO_TOKEN
-make up                         # levanta postgres (pgvector) + app
-make migrate                    # aplica el esquema Silver/Gold
+cp .env.example .env
+$EDITOR .env                    # POSTGRES_PASSWORD obligatorio; el resto opcional
 ```
 
 `make init` **antes** del primer `up` no es opcional: si `data/` no existe,
 Docker crea el bind mount como `root` y el contenedor —que corre con tu UID— no
-puede escribir en Bronze.
+puede escribir en Bronze. Comprueba también que `UID`/`GID` en el `.env`
+coincidan con `id -u` / `id -g`.
 
-El `.env` se crea **a mano** y nunca entra al repositorio. `BANXICO_TOKEN` es
-gratuito y se obtiene en <https://www.banxico.org.mx/SieAPIRest/>; sin él la
-ingesta macro falla en soft y las otras cuatro fuentes continúan.
+El `.env` nunca entra al repositorio. Solo `POSTGRES_PASSWORD` es obligatorio.
+`BANXICO_TOKEN` es gratuito (<https://www.banxico.org.mx/SieAPIRest/>) y sin él
+la ingesta macro falla en soft mientras las otras fuentes continúan.
+
+### El LLM: dos caminos
+
+**A) Ya tienes Ollama corriendo en el host** — el `.env` funciona tal cual
+(`host.docker.internal:11434`). Solo asegúrate del modelo:
+
+```bash
+ollama pull qwen3.5:9b
+```
+
+**B) No tienes Ollama** — el compose trae uno bajo un perfil desactivado por
+defecto:
+
+```bash
+docker compose --profile standalone up -d
+docker compose --profile standalone exec ollama ollama pull qwen3.5:9b
+# y en el .env:  OLLAMA_BASE_URL=http://ollama:11434
+```
+
+Ese perfil está apagado a propósito. En el servidor del laboratorio se reusa un
+Ollama compartido y levantar un segundo con los mismos modelos no cabría en
+16 GB de VRAM (ADR-5); el perfil opcional permite que ambas cosas sean ciertas.
+Si tu máquina tiene GPU, descomenta el bloque `deploy.resources` del servicio.
+
+Cualquier modelo instruct de 7–9B cuantizado a 4 bits sirve: ajusta
+`OLLAMA_MODEL_NER` y `OLLAMA_MODEL_MA`. Si eliges uno de razonamiento, revisa
+[ADR-12](docs/ARQUITECTURA.md#42-los-modelos-del-prd-no-están-disponibles).
+
+### Arranque
+
+```bash
+make up                         # postgres (pgvector) + app
+make migrate                    # esquema Silver y Gold
+make test                       # 130 pruebas — no necesitan red ni LLM
+```
+
+Si `make test` pasa, la instalación es correcta aunque aún no haya datos.
 
 ## Ejecutar el pipeline
 

@@ -1,13 +1,19 @@
 # Makefile — atajos para operar MOD1-PRACTICA.
 #
-# Funciona en LOS DOS LADOS y se adapta solo:
-#   · en el Mac        → cada comando viaja por `ssh mi-pc`
-#   · en mi-pc         → los mismos comandos se ejecutan en local, sin SSH
-#     (el alias `mi-pc` solo existe en el ~/.ssh/config del Mac; desde el propio
-#      servidor no resuelve, y ese fue el error que motivó esta detección)
+# Se adapta solo a TRES contextos, sin configuración:
 #
-# Los targets que solo tienen sentido en el Mac (push, tunnel) fallan con un
-# mensaje explícito si se invocan en el servidor, en vez de con un error de DNS.
+#   local    máquina cualquiera con el repo y Docker. Todo corre aquí mismo.
+#            Es el caso de quien clona el repo por primera vez.
+#   remoto   hay un alias SSH real para $(REMOTE): los comandos viajan allí.
+#   servidor se está ejecutando EN el propio servidor de despliegue.
+#
+# La detección NO pregunta "¿soy tal máquina?" sino "¿existe a dónde ir?".
+# La versión anterior comprobaba el hostname y caía a `ssh mi-pc` en cualquier
+# otro caso, así que en una máquina ajena TODOS los targets fallaban con
+# "Could not resolve hostname mi-pc". Ahora el default es local, que es lo
+# único cierto para cualquiera que no sea el autor.
+#
+# Se puede forzar:  make MODO=local ...   |   make MODO=remoto REMOTE=otro-host ...
 #
 # Los procedimientos canónicos viven en los skills; esto son solo envoltorios:
 #   deploy      → .claude/skills/deploy/SKILL.md
@@ -21,30 +27,55 @@ PG_PORT         ?= 5433
 
 HOST := $(shell hostname -s 2>/dev/null)
 
+# `ssh -G <host>` imprime la configuración resuelta. Si existe un bloque
+# `Host <host>` en ~/.ssh/config, el `hostname` resuelto difiere del literal;
+# si no existe el alias, coincide. Esa diferencia es la señal de que hay un
+# destino remoto de verdad y no un nombre que nadie sabe resolver.
+ALIAS := $(shell ssh -G $(REMOTE) 2>/dev/null | awk '/^hostname /{print $$2}')
+
 ifeq ($(HOST),$(SERVER_HOSTNAME))
-  # Ejecutando EN el servidor: sin SSH. `sh -c` recibe la misma cadena entre
-  # comillas que recibiría ssh, así que los targets no cambian de forma.
-  EN_SERVIDOR := 1
-  RUN         := sh -c
-  RUN_T       := sh -c
-  DIR         := .
-  CONTEXTO    := mi-pc (local, sin SSH)
+  MODO_AUTO := servidor
+else ifeq ($(ALIAS),)
+  MODO_AUTO := local
+else ifeq ($(ALIAS),$(REMOTE))
+  MODO_AUTO := local
 else
-  EN_SERVIDOR :=
-  RUN         := ssh $(REMOTE)
-  RUN_T       := ssh -t $(REMOTE)
-  DIR         := $(REMOTE_DIR)
-  CONTEXTO    := Mac → $(REMOTE) por SSH
+  MODO_AUTO := remoto
+endif
+
+MODO ?= $(MODO_AUTO)
+
+ifeq ($(MODO),remoto)
+  RUN      := ssh $(REMOTE)
+  RUN_T    := ssh -t $(REMOTE)
+  DIR      := $(REMOTE_DIR)
+  CONTEXTO := remoto — los comandos viajan a $(REMOTE) por SSH
+else
+  # `sh -c` recibe la misma cadena entre comillas que recibiría ssh, así que
+  # los targets se escriben una sola vez y no cambian de forma.
+  RUN      := sh -c
+  RUN_T    := sh -c
+  DIR      := .
+  CONTEXTO := $(MODO) — todo se ejecuta en esta máquina
 endif
 
 COMPOSE := cd $(DIR) && docker compose
 
-# Guardia para targets exclusivos del Mac.
+# Guardia para targets que no tienen sentido en el servidor de despliegue.
 # OJO: $(call) separa argumentos por comas, así que el mensaje que se le pase
 # NO debe contener ninguna o quedará truncado en la primera.
-define solo_mac
-	@if [ -n "$(EN_SERVIDOR)" ]; then \
-		echo "ERROR: '$@' solo se ejecuta desde el Mac."; \
+define no_en_servidor
+	@if [ "$(MODO)" = "servidor" ]; then \
+		echo "ERROR: '$@' no se ejecuta en el servidor de despliegue."; \
+		echo "  Motivo: $(1)"; \
+		exit 1; \
+	fi
+endef
+
+# Guardia para targets que exigen un destino remoto configurado.
+define exige_remoto
+	@if [ "$(MODO)" != "remoto" ]; then \
+		echo "ERROR: '$@' necesita MODO=remoto (hoy: $(MODO))."; \
 		echo "  Motivo: $(1)"; \
 		exit 1; \
 	fi
@@ -60,20 +91,22 @@ help: ## Muestra esta ayuda
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 where: ## Muestra dónde se ejecutarán los comandos y por qué
-	@echo "hostname       : $(HOST)"
-	@echo "contexto       : $(CONTEXTO)"
-	@echo "directorio     : $(DIR)"
-	@echo "prefijo de run : $(RUN)"
+	@echo "hostname        : $(HOST)"
+	@echo "modo            : $(MODO)$(if $(filter $(MODO),$(MODO_AUTO)), (detectado), (forzado; auto sería $(MODO_AUTO)))"
+	@echo "contexto        : $(CONTEXTO)"
+	@echo "alias SSH       : $(REMOTE) -> $(if $(ALIAS),$(ALIAS),(sin resolver))"
+	@echo "directorio      : $(DIR)"
+	@echo "prefijo de run  : $(RUN)"
 
 ## --- Deploy (Mac → GitHub → mi-pc) -----------------------------------------
 
-push: ## Commitea y publica a GitHub (uso: make push M="mensaje") — SOLO Mac
-	$(call solo_mac,invariante 2 — mi-pc solo hace git pull y nunca commitea)
+push: ## Commitea y publica a GitHub (uso: make push M="mensaje")
+	$(call no_en_servidor,invariante 2 — el servidor solo hace git pull y nunca commitea)
 	@test -n "$(M)" || (echo "ERROR: usa make push M=\"mensaje de commit\""; exit 1)
 	@git status --short
 	@git add -A && git commit -m "$(M)" && git push
 
-pull: ## git pull determinista (descarta drift local; nunca commitea — invariante 2)
+pull: ## git pull determinista en el destino (nunca commitea — invariante 2)
 	$(RUN) 'cd $(DIR) && git fetch --all --prune && git reset --hard @{u} && git log -1 --oneline'
 
 deploy: pull up ps ## pull + up + ps (el .env del servidor NO se toca)
@@ -81,7 +114,7 @@ deploy: pull up ps ## pull + up + ps (el .env del servidor NO se toca)
 ## --- Ciclo de vida ----------------------------------------------------------
 
 init: ## Crea el árbol data/ con el ownership correcto (ANTES del primer up)
-	@echo "Creando data/ en $(CONTEXTO) — si no existe, Docker lo crearía como root."
+	@echo "Creando data/ [$(MODO)] — si no existe, Docker lo crearía como root."
 	$(RUN) 'cd $(DIR) && mkdir -p data/bronze/news data/bronze/market \
 		data/silver data/gold data/cache data/faiss data/hf_cache && ls -la data'
 	@echo "Recuerda: el .env se crea A MANO en el servidor desde .env.example (invariante 3)."
@@ -118,9 +151,9 @@ gpu: ## VRAM y utilización de la RTX 5080 (presupuesto crítico: 16 GB)
 ollama: ## Modelos disponibles en el lab-ollama compartido
 	$(RUN) 'curl -s http://127.0.0.1:11434/api/tags'
 
-tunnel: ## Túnel SSH: Postgres remoto → 127.0.0.1:$(PG_PORT) en el Mac — SOLO Mac
-	$(call solo_mac,en el servidor el puerto ya es local en 127.0.0.1:5432)
-	@echo "Postgres de mi-pc disponible en 127.0.0.1:$(PG_PORT) — Ctrl-C para cerrar"
+tunnel: ## Túnel SSH a Postgres del host remoto (solo MODO=remoto)
+	$(call exige_remoto,en local el puerto ya está en 127.0.0.1:5432 sin túnel)
+	@echo "Postgres de $(REMOTE) disponible en 127.0.0.1:$(PG_PORT) — Ctrl-C para cerrar"
 	ssh -N -L $(PG_PORT):127.0.0.1:5432 $(REMOTE)
 
 ## --- Pipeline ---------------------------------------------------------------
@@ -163,8 +196,8 @@ test: ## Ejecuta las pruebas de los contratos dentro del contenedor
 demo: ## Demostración de punta a punta 2x + tabla de evidencia (entregable)
 	$(RUN) '$(COMPOSE) exec -T app python scripts/demo_e2e.py $(ARGS)'
 
-evidencia: ## Trae el informe de evidencia del servidor al Mac
-	$(call solo_mac,el informe se copia DESDE el servidor)
+evidencia: ## Copia el informe de evidencia a docs/ (solo MODO=remoto)
+	$(call exige_remoto,en local el informe ya está en data/evidencia_e2e.md)
 	scp $(REMOTE):$(REMOTE_DIR)/data/evidencia_e2e.md ./docs/EVIDENCIA_E2E.md
 	@echo "Escrito en docs/EVIDENCIA_E2E.md — versionado como entregable"
 
