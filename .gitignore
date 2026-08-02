@@ -9,8 +9,12 @@
 *.key
 
 # --- Datos: capas del medallón (Bronze inmutable, Silver, Gold) ---
+# Ignorado por completo, sin excepciones de .gitkeep: git no desciende a un
+# directorio excluido, así que un `!data/**/.gitkeep` no funcionaría de todas
+# formas. El árbol se crea en el servidor con `make init` ANTES del primer
+# `compose up` — si no existiera, Docker lo crearía como root y el contenedor
+# (que corre con UID:GID del host) no podría escribir en él.
 data/
-!data/.gitkeep
 
 # --- Artefactos derivados: índice FAISS y cachés ---
 *.index

@@ -1,0 +1,167 @@
+# MOD1-PRACTICA — Analítica Avanzada de Equity BMV
+#
+# Stack medallón: app (pipeline Python) + postgres (Silver/Gold).
+# El runtime de inferencia NO vive aquí: se reusa el contenedor compartido
+# `lab-ollama` (ver servicio `app` → extra_hosts). Ver ADR-5 en docs/HARNESS.md.
+#
+# Convenciones heredadas de ~/augmented/services/ (lab-nlp-fomc, lab-ollama):
+#   · un servicio por carpeta      · puertos SOLO en 127.0.0.1 + túnel SSH
+#   · image con tag de versión     · comentarios con el porqué de cada decisión
+
+name: mod1-practica
+
+services:
+  # ---------------------------------------------------------------------------
+  # postgres — capas Silver y Gold del medallón
+  # ---------------------------------------------------------------------------
+  postgres:
+    # pgvector/pgvector:pg15 en lugar de postgres:15 puro porque el modelo de
+    # datos del PRD (§5.3) declara `embedding: vector(1024)` en
+    # gold_enriched_news. Sin la extensión pgvector esa columna no existe.
+    # FAISS sigue siendo el índice de búsqueda; pgvector solo persiste el vector
+    # junto al resto del registro para no partir la fila en dos almacenes.
+    image: pgvector/pgvector:pg15
+    container_name: mod1-postgres
+    restart: unless-stopped
+
+    # NOTA — desviación deliberada de la convención `user: ${UID}:${GID}`:
+    # la imagen de postgres corre initdb como su propio usuario `postgres` (999)
+    # sobre un volumen NOMBRADO. Forzar UID 1000 rompe el arranque inicial
+    # ("data directory has wrong ownership"). La convención UID:GID existe para
+    # evitar archivos root en bind mounts del host; aquí no hay bind mount de
+    # datos, así que no aplica. El servicio `app` sí la respeta.
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mod1_practica}
+      POSTGRES_USER: ${POSTGRES_USER:-mod1}
+      # Sin default a propósito: si falta en .env, que falle ruidosamente en vez
+      # de levantar una base con contraseña adivinable.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en .env}
+      # Acelera el arranque en un entorno de laboratorio single-machine.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+
+    ports:
+      # Solo loopback (invariante 4): desde el Mac se llega por túnel SSH
+      #   ssh -N -L 5433:127.0.0.1:5432 mi-pc
+      # El puerto de host es parametrizable por si 5432 se ocupa en el futuro;
+      # hoy está libre en mi-pc (verificado 2026-08-01).
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+
+    volumes:
+      # Volumen NOMBRADO, no bind mount: los datos de PG no deben vivir en la
+      # carpeta del repo ni acabar cerca de git (invariante 1 / ADR-3).
+      - pgdata:/var/lib/postgresql/data
+      # Scripts de init: solo se ejecutan la PRIMERA vez, con el volumen vacío.
+      # Aquí va únicamente infraestructura (CREATE EXTENSION); el DDL de tablas
+      # lo gobiernan los skills data-contracts / medallion-pipeline.
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mod1} -d ${POSTGRES_DB:-mod1_practica}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # app — pipeline medallón (ingesta → validación → NLP → Gold → FAISS)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        # Mismo patrón que lab-nlp-fomc: el usuario del contenedor se construye
+        # con el UID/GID del host para que lo que se escriba en ./data no quede
+        # como root en mi-pc.
+        UID: ${UID:-1000}
+        GID: ${GID:-1000}
+    image: mod1-practica-app:0.1.0
+    container_name: mod1-app
+    user: "${UID:-1000}:${GID:-1000}"
+    working_dir: /app
+    restart: unless-stopped
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    # ADR-5 — Ollama compartido. NO levantamos un Ollama propio: la VRAM de la
+    # RTX 5080 son 16 GB y una segunda copia de los modelos es el riesgo alto
+    # nº2 del PRD (§9). Se alcanza al lab-ollama del host por host-gateway.
+    # Ruta de graduación documentada en scaffold-service: red externa
+    # `augmented-net` cuando crezca la intercomunicación entre servicios.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      PROJECT_ROOT: /app
+      PYTHONPATH: /app
+      # Sin buffer: los logs del pipeline aparecen en `docker compose logs` en
+      # tiempo real en vez de al terminar el proceso.
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # --- Conexión a Silver/Gold (nombre de servicio, red interna de compose) ---
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-mod1_practica}
+      POSTGRES_USER: ${POSTGRES_USER:-mod1}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?definir POSTGRES_PASSWORD en .env}
+
+      # --- Inferencia local (invariantes 5 y 7) ---
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL_NER: ${OLLAMA_MODEL_NER:-qwen3.5:9b}
+      OLLAMA_MODEL_MA: ${OLLAMA_MODEL_MA:-qwen3.5:9b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-large}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-sentence_transformers}
+      # Lotes de 8 llamadas concurrentes a Ollama (PRD §4.4 y §7): satura la GPU
+      # sin desbordar VRAM. Subir a 16 solo tras verificar margen con nvidia-smi.
+      NLP_BATCH_SIZE: ${NLP_BATCH_SIZE:-8}
+
+      # --- Fuentes externas ---
+      BANXICO_TOKEN: ${BANXICO_TOKEN:-}
+      REQUESTS_CACHE_PATH: ${REQUESTS_CACHE_PATH:-/app/data/cache/requests_cache.sqlite}
+      CACHE_TTL_MARKET_SECONDS: ${CACHE_TTL_MARKET_SECONDS:-86400}
+      CACHE_TTL_MACRO_SECONDS: ${CACHE_TTL_MACRO_SECONDS:-604800}
+
+      # --- Rutas del medallón (dentro del contenedor) ---
+      BRONZE_PATH: ${BRONZE_PATH:-/app/data/bronze}
+      SILVER_PATH: ${SILVER_PATH:-/app/data/silver}
+      GOLD_PATH: ${GOLD_PATH:-/app/data/gold}
+      FAISS_INDEX_PATH: ${FAISS_INDEX_PATH:-/app/data/faiss/index.index}
+      MARKET_CALENDAR: ${MARKET_CALENDAR:-XMEX}
+
+      # Caché de modelos de HuggingFace en el volumen, no en la capa de imagen:
+      # e5-large pesa ~2 GB y se re-descargaría en cada rebuild.
+      HF_HOME: /app/data/hf_cache
+
+    volumes:
+      # Código montado: permite iterar con `git pull` + reinicio, sin rebuild,
+      # mientras el scaffold esté en movimiento.
+      - ./src:/app/src:ro
+      # BRONZE/SILVER/GOLD. Bind mount al host para que los datos sobrevivan a
+      # `compose down` y sean inspeccionables por SSH. Gitignorado (invariante 1).
+      - ./data:/app/data
+
+    healthcheck:
+      # Verifica la premisa de ADR-5: que el lab-ollama compartido es alcanzable
+      # desde dentro del contenedor. Si esto falla, el enriquecimiento NLP no
+      # puede funcionar y conviene saberlo en `compose ps`, no a mitad del batch.
+      test: ["CMD-SHELL", "python -c \"import os,urllib.request; urllib.request.urlopen(os.environ['OLLAMA_BASE_URL']+'/api/tags', timeout=5)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+    # El pipeline es BATCH, no un servidor: no hay proceso de larga duración que
+    # justifique un `command` propio. Se mantiene vivo para poder invocar etapas
+    # con `docker compose exec -T app python -m src.pipeline.<etapa>`
+    # (ver skill remote-ops). Alternativa futura: un scheduler post-cierre 15:30 CT.
+    command: ["sleep", "infinity"]
+    stdin_open: true
+    tty: true
+
+volumes:
+  pgdata:
+    name: mod1-practica-pgdata

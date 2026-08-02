@@ -1,0 +1,57 @@
+# Dependencias del pipeline medallón MOD1-PRACTICA.
+# Versiones acotadas con ~= (compatible release): fija major.minor y deja pasar
+# parches. Un lab reproducible no debería romperse por un release menor.
+
+# --- Contratos de datos (Silver) — ver skill data-contracts ---
+pydantic~=2.9
+pydantic-settings~=2.6
+
+# --- PostgreSQL (Silver/Gold) ---
+# psycopg 3 con binario precompilado: evita necesitar libpq-dev en la imagen.
+psycopg[binary]~=3.2
+pgvector~=0.3          # adaptador Python para la columna vector(1024)
+
+# --- Fuentes de datos (PRD §3) ---
+yfinance~=0.2          # 3.4 — precios OHLCV de emisoras .MX
+feedparser~=6.0        # 3.2 — RSS de El Financiero / El Economista / Bloomberg Línea
+beautifulsoup4~=4.12   # 3.1 — scraping de Eventos Relevantes BMV
+lxml~=5.3              # parser rápido para bs4 y feedparser
+requests~=2.32         # 3.5 — API REST de BANXICO/SIE
+
+# --- Caché de APIs externas (PRD §6.7) ---
+# Backend SQLite. Evita agotar el rate limit de yfinance durante el desarrollo
+# iterativo; TTL diario para mercado, semanal para series macro mensuales.
+requests-cache~=1.2
+
+# --- Inferencia NLP asíncrona contra el lab-ollama compartido ---
+# aiohttp es el requisito explícito del PRD (§2.1) para los lotes de 8
+# llamadas simultáneas que saturan la RTX 5080.
+aiohttp~=3.10
+
+# --- Calendario bursátil (PRD §6.6) ---
+# Calendario XMEX: resuelve el siguiente día hábil de la BMV para el JOIN
+# noticias↔precios. Sin esto, una noticia del viernes pierde su impacto.
+pandas-market-calendars~=4.4
+pandas~=2.2
+numpy~=2.1
+
+# --- Capa Gold: índice vectorial ---
+# faiss-cpu, no faiss-gpu: el índice es IndexFlatIP sobre ≤500 vectores/lote
+# (PRD §7 exige <30 s de indexación y <500 ms de búsqueda) — la CPU sobra, y
+# faiss-gpu competiría por la VRAM de 16 GB que necesita Ollama (invariante 7).
+faiss-cpu~=1.9
+
+# --- Embeddings en español ---
+# ATENCIÓN AL PESO: sentence-transformers arrastra torch (~2.5 GB en la imagen)
+# solo para servir intfloat/multilingual-e5-large.
+# Alternativa evaluada: `bge-m3` ya está cargado en el lab-ollama compartido y
+# también produce vectores de 1024 dimensiones, compatibles con el esquema
+# gold_enriched_news.embedding vector(1024). Usarlo eliminaría torch de la
+# imagen por completo. La variable EMBEDDING_BACKEND del compose permite
+# conmutar. Se mantiene e5-large como default por fidelidad al PRD §6.5.
+sentence-transformers~=3.3
+
+# --- Utilidades ---
+python-dotenv~=1.0
+tenacity~=9.0          # reintentos con backoff: ingesta fail-soft por fuente
+structlog~=24.4        # logging estructurado, legible en `docker compose logs`
