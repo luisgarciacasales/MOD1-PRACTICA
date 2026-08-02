@@ -4,6 +4,12 @@ Cómo trabajar este proyecto desde el Mac sabiendo que **nada se ejecuta aquí**
 el código se edita en el Mac y corre en `mi-pc`. Contexto de producto en
 `docs/PRD.md`; decisiones del arnés en `docs/HARNESS.md`.
 
+> **El Makefile funciona en los dos lados.** Detecta el hostname: en el Mac cada
+> comando viaja por `ssh mi-pc`; en el propio servidor se ejecuta en local sin
+> SSH (el alias `mi-pc` solo existe en el `~/.ssh/config` del Mac). Comprueba
+> dónde estás con `make where`. Los targets `push` y `tunnel` se bloquean con un
+> mensaje explícito si los invocas en el servidor.
+
 ## Modelo mental en tres líneas
 
 ```
@@ -88,8 +94,9 @@ make ollama     # qué modelos hay cargados en el lab-ollama compartido
 
 | Comando | Qué hace |
 | --- | --- |
+| `make where` | Dónde se ejecutarán los comandos (Mac por SSH, o servidor en local) |
 | `make init` | Crea `data/` en el servidor con el ownership correcto |
-| `make push M="..."` | Commit + push a GitHub |
+| `make push M="..."` | Commit + push a GitHub — solo Mac |
 | `make deploy` | `pull` + `up` + `ps` en mi-pc |
 | `make up` / `down` | Levanta / detiene (sin borrar volúmenes) |
 | `make ps` / `logs S=app` | Estado y logs |
