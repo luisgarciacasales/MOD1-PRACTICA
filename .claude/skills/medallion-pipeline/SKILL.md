@@ -54,8 +54,12 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && docker compose exec -T app p
 
 | Etapa | Estado |
 | --- | --- |
-| `migrate` · `ingest` | **Implementadas.** |
-| `validate` · `enrich` · `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+| `migrate` · `ingest` · `validate` | **Implementadas.** |
+| `enrich` · `transform` · `correlate` · `index` · `verify` | Stubs: salen con código 1 apuntando a su skill. |
+
+**Silver es reconstruible.** Todas sus tablas se regeneran desde Bronze en segundos (`TRUNCATE` + `validate`). Ante un cambio de contrato o una corrección de reglas, reconstruir es preferible a parchear filas: las que entraron bajo la regla vieja no las alcanza el UPSERT si dejan de satisfacer el contrato, y quedan como residuo silencioso.
+
+**La cuarentena no deduplica**, por diseño: cada rechazo es un evento con su fecha y su motivo. Al contar `silver_dead_letters` hay que tener presente que acumula una entrada por corrida.
 
 **Salud real de las fuentes** (verificada 2026-08-01, detalle en ADR-11): funcionan `financiero`, `bloomberg`, `finnovista` y `yahoo_finance`. Fallan en soft `economista` (403, WAF anti-datacenter) y `bmv_eventos` (SPA sin endpoint accesible). `banxico` requiere `BANXICO_TOKEN` en el `.env` del servidor.
 
