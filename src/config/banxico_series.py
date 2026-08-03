@@ -30,11 +30,27 @@ class SerieBanxico(NamedTuple):
 # SP74625 es un índice de NIVEL, no una tasa. Es lo correcto aquí: `transform`
 # calcula `yoy_change_pct` sobre él, y esa variación interanual ES la inflación
 # subyacente que pide el PRD.
+#   SF63528  el PRD dice "Tasa de fondeo / objetivo"    → es "Serie histórica
+#            del tipo de cambio peso dólar" (17,33). La tasa objetivo real es
+#            SF61745 (6,50).
+#   SF46410  el PRD dice "Tipo de cambio FIX"           → es "Cotización de las
+#            divisas que conforman la canasta del DEG" (19,97), que no es
+#            USD/MXN. El FIX es SF43718, ya presente en la lista, así que su
+#            hueco se aprovecha para la tasa de fondeo bancario (SF43773).
+#
+# Consecuencia de no corregirlo: el `macro_context` de cada correlación
+# etiquetaba un tipo de cambio como "tasa de fondeo" y una canasta del DEG como
+# "FIX". El dato existía y era numéricamente válido, así que ningún contrato lo
+# rechazaba — solo estaba mal nombrado, que es la clase de error que sobrevive a
+# la validación y envenena la interpretación.
 SERIES: tuple[SerieBanxico, ...] = (
+    # --- Tasas ---
     SerieBanxico("SF43783", "TIIE a 28 días", "diaria"),
-    SerieBanxico("SF63528", "Tasa de fondeo gubernamental (objetivo Banxico)", "diaria"),
-    SerieBanxico("SF46410", "Tipo de cambio FIX USD/MXN", "diaria"),
-    SerieBanxico("SF43718", "Tipo de cambio USD/MXN para liquidar obligaciones", "diaria"),
+    SerieBanxico("SF61745", "Tasa objetivo de Banxico", "diaria"),
+    SerieBanxico("SF43773", "Tasa de fondeo bancario (mediana ponderada)", "diaria"),
+    # --- Tipo de cambio ---
+    SerieBanxico("SF43718", "Tipo de cambio FIX USD/MXN", "diaria"),
+    # --- Mensuales ---
     SerieBanxico("SF311408", "Agregado monetario M1", "mensual"),
     SerieBanxico("SP74625", "INPC subíndice subyacente", "mensual"),
 )
