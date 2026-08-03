@@ -47,7 +47,17 @@ def test_alias_con_caracteres_especiales_no_rompe_la_regex():
 
 
 def test_extrae_entidades_financieras():
-    assert "bbva mexico" in extraer_entidades("BBVA México reportó su cartera")
+    """Instituciones sin ticker en el universo: se detectan como entidad."""
+    assert "citibanamex" in extraer_entidades("Citibanamex reportó su cartera")
+    assert "banxico" in extraer_entidades("Banxico publicó su informe trimestral")
+
+
+def test_los_bancos_con_ticker_se_detectan_como_emisora_no_como_entidad():
+    """Tras la ampliación del 2026-08-03, BBVA y Santander tienen ticker (sus
+    matrices vía SIC), así que dejan de ser 'entidad sin cotización'."""
+    assert extraer_tickers("BBVA México reportó su cartera") == ["BBVA.MX"]
+    assert extraer_tickers("Santander México eleva su guía") == ["SANN.MX"]
+    assert extraer_entidades("BBVA México reportó su cartera") == []
 
 
 def test_reconoce_fintechs_del_diccionario():
