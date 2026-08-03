@@ -5,7 +5,7 @@
   {"legal_name": "Klar Technologies, S.A.P.I. de C.V.", "commercial_name": "Klar", "ticker": null, "sector": "lending", "country": "MX"},
   {"legal_name": "Fondeadora, S.A.P.I. de C.V.", "commercial_name": "Fondeadora", "ticker": null, "sector": "neobanco", "country": "MX"},
   {"legal_name": "Albo Servicios Financieros, S.A. de C.V.", "commercial_name": "Albo", "ticker": null, "sector": "neobanco", "country": "MX"},
-  {"legal_name": "Hey Banco, S.A., Institución de Banca Múltiple", "commercial_name": "Hey Banco", "ticker": null, "sector": "neobanco", "country": "MX"},
+  {"legal_name": "Hey Banco, S.A., Institución de Banca Múltiple", "commercial_name": "Hey Banco", "ticker": "RA.MX", "sector": "neobanco", "country": "MX"},
   {"legal_name": "Clip (PayClip, S. de R.L. de C.V.)", "commercial_name": "Clip", "ticker": null, "sector": "payments", "country": "MX"},
   {"legal_name": "Conekta Servicios Digitales, S.A. de C.V.", "commercial_name": "Conekta", "ticker": null, "sector": "payments", "country": "MX"},
   {"legal_name": "Kueski, S.A.P.I. de C.V., SOFOM E.N.R.", "commercial_name": "Kueski", "ticker": null, "sector": "lending", "country": "MX"},

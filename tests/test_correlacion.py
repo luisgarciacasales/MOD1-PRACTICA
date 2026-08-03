@@ -105,7 +105,7 @@ def test_proxy_cuando_la_fintech_no_cotiza():
     r = objetivos(
         fila(fintechs_identified=["Nu"], sector_affected="banca_consumo"), FINTECHS
     )
-    assert {x["ticker"] for x in r} == {"GFNORTEO.MX", "BBAJIOO.MX"}
+    assert {x["ticker"] for x in r} == {"GFNORTEO.MX", "BBAJIOO.MX", "GENTERA.MX"}
     assert all(x["is_proxy"] for x in r)
     assert all(x["proxy_ticker"] == x["ticker"] for x in r)
     assert all(x["original_fintech"] == "Nu" for x in r)
@@ -178,15 +178,16 @@ def test_noticia_sin_nada_no_se_correlaciona():
 @pytest.mark.parametrize(
     "sector,esperados",
     [
-        ("banca_consumo", {"GFNORTEO.MX", "BBAJIOO.MX"}),
-        ("captacion_ahorro", {"GFNORTEO.MX"}),
+        ("banca_consumo", {"GFNORTEO.MX", "BBAJIOO.MX", "GENTERA.MX"}),
+        ("captacion_ahorro", {"GFNORTEO.MX", "RA.MX"}),
         ("credito_automotriz", {"BBAJIOO.MX"}),
-        ("pagos_digitales", {"GFNORTEO.MX"}),
-        ("insurtech", {"WALMEX.MX"}),
+        ("pagos_digitales", {"GFNORTEO.MX", "GFINBURO.MX"}),
+        # Quálitas: aseguradora real, ya no el proxy analógico a WALMEX.
+        ("insurtech", {"Q.MX"}),
     ],
 )
 def test_mapeo_sector_proxy_completo(sector, esperados):
-    """Los cinco sectores de la tabla del PRD §3.3, con la serie accionaria
-    corregida (ADR-11)."""
+    """Los cinco sectores del PRD §3.3, con la serie accionaria corregida
+    (ADR-11) y el universo financiero ampliado el 2026-08-03."""
     r = objetivos(fila(fintechs_identified=["Nu"], sector_affected=sector), FINTECHS)
     assert {x["ticker"] for x in r} == esperados

@@ -19,8 +19,28 @@ palabra, para que "amx" no coincida dentro de "amxico".
 # Ticker de Yahoo (con serie accionaria, ver ADR-11) → formas en que el texto
 # puede nombrar a la emisora.
 ALIAS_EMISORAS: dict[str, tuple[str, ...]] = {
+    # --- Banca y servicios financieros ---
     "GFNORTEO.MX": ("banorte", "grupo financiero banorte", "gfnorte", "gfnorteo"),
     "BBAJIOO.MX": ("banbajio", "banco del bajio", "bbajio", "bbajioo"),
+    "GENTERA.MX": ("gentera", "compartamos", "compartamos banco", "banco compartamos"),
+    # OJO: "regional" a secas NO es alias. Es un adjetivo corrísimo en español
+    # ("banca regional", "mercado regional") y produciría falsos positivos en
+    # casi cualquier noticia económica.
+    # "hey banco" SÍ lo es: Hey Banco es el banco digital de Banregio, así que
+    # una noticia sobre Hey es una noticia sobre el instrumento cotizado RA.MX.
+    # Eso lo convierte en correlación DIRECTA, mejor que un proxy sectorial.
+    "RA.MX": ("banregio", "grupo financiero banregio", "hey banco", "heybanco"),
+    "GFINBURO.MX": ("inbursa", "banco inbursa", "grupo financiero inbursa", "gfinbur"),
+    # PROBLEMA CONOCIDO de esta emisora: su nombre coincide con el del propio
+    # mercado. "la BMV cerró al alza" habla del índice, no de las acciones de la
+    # operadora, y aceptar "bmv" o "bolsa mexicana de valores" como alias
+    # etiquetaría con BOLSAA.MX casi toda noticia bursátil. Se usan solo formas
+    # que se refieren sin ambigüedad a la empresa. El coste es cobertura baja;
+    # la alternativa era ruido masivo. (Nota: "bmv" sí es término del léxico
+    # SECTORIAL de abajo, que es un campo distinto y ahí sí es correcto.)
+    "BOLSAA.MX": ("grupo bmv", "bolsa mexicana de valores s.a.b", "bolsaa"),
+    "Q.MX": ("qualitas", "qualitas controladora", "quálitas"),
+    # --- Resto del universo ---
     "WALMEX.MX": ("walmex", "walmart de mexico", "walmart mexico", "bodega aurrera", "sam's club"),
     "AMXB.MX": ("america movil", "amx", "amxb", "telcel", "telmex"),
     "GMEXICOB.MX": ("grupo mexico", "gmexico", "gmexicob", "southern copper", "ferromex"),
@@ -29,14 +49,20 @@ ALIAS_EMISORAS: dict[str, tuple[str, ...]] = {
     "ALSEA.MX": ("alsea", "domino's", "starbucks mexico", "burger king mexico"),
 }
 
-# Instituciones financieras que no están en el universo de 8 emisoras pero cuya
-# mención hace la noticia relevante para el sector. Se registran como
-# **entidades**, no como tickers: no cotizan en el universo del proyecto y
-# fingir un ticker aquí contaminaría el JOIN con precios.
+# Instituciones y organismos financieros que NO están en el universo cotizado
+# del proyecto, pero cuya mención hace la noticia relevante para el sector. Se
+# registran como **entidades**, no como tickers: fingir un ticker aquí
+# contaminaría el JOIN con precios.
+#
+# Al ampliar el universo el 2026-08-03 se retiraron de esta lista `inbursa`,
+# `banregio` y `compartamos`: ahora cotizan (GFINBURO.MX, RA.MX, GENTERA.MX) y
+# tenerlas en los dos sitios las habría etiquetado a la vez como emisora y como
+# entidad sin cotización, que es contradictorio.
 ENTIDADES_FINANCIERAS: tuple[str, ...] = (
     "banxico", "banco de mexico", "bbva mexico", "santander mexico", "citibanamex",
-    "banamex", "hsbc mexico", "scotiabank", "banco azteca", "inbursa", "banregio",
-    "afirme", "compartamos", "bancoppel", "condusef", "cnbv", "shcp", "hacienda",
+    "banamex", "hsbc mexico", "scotiabank", "banco azteca",
+    "afirme", "bancoppel", "banco del bienestar", "nafin", "bancomext",
+    "condusef", "cnbv", "shcp", "hacienda", "ipab",
     "buro de credito", "fitch", "moody's", "s&p global", "hr ratings",
 )
 
