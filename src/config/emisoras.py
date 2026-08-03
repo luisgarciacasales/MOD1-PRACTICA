@@ -40,6 +40,18 @@ ALIAS_EMISORAS: dict[str, tuple[str, ...]] = {
     # SECTORIAL de abajo, que es un campo distinto y ahí sí es correcto.)
     "BOLSAA.MX": ("grupo bmv", "bolsa mexicana de valores s.a.b", "bolsaa"),
     "Q.MX": ("qualitas", "qualitas controladora", "quálitas"),
+    # Matrices españolas vía SIC (ver EMISORAS_SIC en config/tickers.py). Los
+    # alias apuntan a la FILIAL mexicana porque es de ella de la que habla la
+    # prensa; el precio disponible es el de la matriz, y esa asimetría es
+    # justamente la salvedad documentada.
+    # "bancomer" se incluye porque BBVA México operó como BBVA Bancomer y el
+    # nombre sigue muy vivo en el lenguaje periodístico.
+    "BBVA.MX": ("bbva", "bbva mexico", "bbva bancomer", "bancomer",
+                "banco bilbao vizcaya"),
+    # OJO: "santander" a secas sí se acepta —en prensa mexicana casi siempre
+    # designa al banco— pero es un apellido y un topónimo (la ciudad española).
+    # Es un riesgo asumido y acotado: el corpus es financiero.
+    "SANN.MX": ("santander", "banco santander", "santander mexico"),
     # --- Resto del universo ---
     "WALMEX.MX": ("walmex", "walmart de mexico", "walmart mexico", "bodega aurrera", "sam's club"),
     "AMXB.MX": ("america movil", "amx", "amxb", "telcel", "telmex"),
@@ -55,11 +67,12 @@ ALIAS_EMISORAS: dict[str, tuple[str, ...]] = {
 # contaminaría el JOIN con precios.
 #
 # Al ampliar el universo el 2026-08-03 se retiraron de esta lista `inbursa`,
-# `banregio` y `compartamos`: ahora cotizan (GFINBURO.MX, RA.MX, GENTERA.MX) y
+# `banregio`, `compartamos`, `bbva mexico` y `santander mexico`: ahora todas
+# tienen un ticker asociado (GFINBURO.MX, RA.MX, GENTERA.MX, BBVA.MX, SANN.MX) y
 # tenerlas en los dos sitios las habría etiquetado a la vez como emisora y como
 # entidad sin cotización, que es contradictorio.
 ENTIDADES_FINANCIERAS: tuple[str, ...] = (
-    "banxico", "banco de mexico", "bbva mexico", "santander mexico", "citibanamex",
+    "banxico", "banco de mexico", "citibanamex",
     "banamex", "hsbc mexico", "scotiabank", "banco azteca",
     "afirme", "bancoppel", "banco del bienestar", "nafin", "bancomext",
     "condusef", "cnbv", "shcp", "hacienda", "ipab",

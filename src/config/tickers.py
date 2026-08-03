@@ -34,6 +34,9 @@ TICKERS_PRIORITARIOS: tuple[str, ...] = (
     "GFINBURO.MX",   # Grupo Financiero Inbursa
     "BOLSAA.MX",     # Bolsa Mexicana de Valores (la operadora, no el índice)
     "Q.MX",          # Quálitas Controladora — aseguradora
+    # --- Matrices extranjeras vía SIC (leer la advertencia de abajo) ---
+    "BBVA.MX",       # Banco Bilbao Vizcaya Argentaria S.A. (matriz de BBVA México)
+    "SANN.MX",       # Banco Santander S.A. (matriz de Santander México)
     # --- Resto del universo original ---
     "WALMEX.MX",
     "AMXB.MX",
@@ -42,6 +45,31 @@ TICKERS_PRIORITARIOS: tuple[str, ...] = (
     "FEMSAUBD.MX",
     "ALSEA.MX",
 )
+
+# Emisoras cuyo precio hay que interpretar con cuidado. Se ingieren igual, pero
+# cualquier análisis que las use debe declarar la salvedad.
+#
+# BBVA.MX y SANN.MX cotizan en la BMV a través del **SIC** (Sistema Internacional
+# de Cotizaciones) y NO son las filiales mexicanas: son las matrices españolas
+# (Yahoo las reporta con `country: Spain`). Dos consecuencias:
+#
+#   1. El precio es un ESPEJO. Lo fija la plaza primaria de Madrid y la
+#      conversión a pesos, así que `daily_return_pct` mezcla el movimiento de la
+#      acción con el del tipo de cambio EUR/MXN. Un retorno puede ser cambiario
+#      y no una reacción a la noticia.
+#   2. La exposición a México está DILUIDA. México pesa mucho en el resultado de
+#      BBVA y bastante menos en el de Santander; el resto responde a España,
+#      Turquía y Sudamérica.
+#
+# Se incluyen de todos modos porque BBVA México y Santander México son el primero
+# y el tercer banco del país por activos y aparecen constantemente en la prensa:
+# sin ellas, ninguna noticia sobre esos bancos llegaba nunca a correlacionarse.
+# Es el mismo razonamiento del proxy ticker del PRD §3.3 — un proxy imperfecto y
+# declarado vale más que ningún precio.
+#
+# Su liquidez además es baja (~14 000 títulos de media frente a 6,6 M de
+# Banorte), y SANN.MX tiene un 12% de sesiones sin operar.
+EMISORAS_SIC: frozenset[str] = frozenset({"BBVA.MX", "SANN.MX"})
 
 # Ventana histórica inicial; después la ingesta es incremental diaria (PRD §3.4).
 VENTANA_HISTORICA_ANIOS: int = 2
@@ -76,6 +104,14 @@ SECTOR_A_PROXY: dict[str, tuple[str, ...]] = {
     # de analógico.
     "insurtech": ("Q.MX",),
 }
+
+# NOTA — las emisoras de EMISORAS_SIC (BBVA.MX, SANN.MX) se dejan FUERA de este
+# mapeo a propósito, aunque BBVA México y Santander México sean competidores
+# directos de los neobancos. Motivo: ya son proxies imperfectos de sus filiales,
+# y usarlas además como proxy sectorial de una fintech apilaría dos
+# aproximaciones —fintech → sector → matriz extranjera— cuyo error compuesto
+# haría el resultado indefendible. Sí se correlacionan de forma DIRECTA cuando
+# la noticia las menciona, que es donde su señal es interpretable.
 
 # Sectores válidos que el LLM puede devolver. Restringir el vocabulario evita
 # que la inferencia invente etiquetas que luego no mapean a ningún proxy.
