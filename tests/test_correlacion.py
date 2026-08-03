@@ -124,16 +124,21 @@ def test_directo_y_proxy_conviven_si_son_emisoras_distintas():
     directos = [x for x in r if not x["is_proxy"]]
     proxies = [x for x in r if x["is_proxy"]]
     assert [x["ticker"] for x in directos] == ["FEMSAUBD.MX"]
-    assert [x["ticker"] for x in proxies] == ["GFNORTEO.MX"]
-    assert proxies[0]["original_fintech"] == "Mercado Pago"
+    # pagos_digitales mapea a Banorte e Inbursa: ambos entran como proxy.
+    assert {x["ticker"] for x in proxies} == {"GFNORTEO.MX", "GFINBURO.MX"}
+    assert all(x["original_fintech"] == "Mercado Pago" for x in proxies)
 
 
 def test_el_proxy_no_duplica_un_ticker_ya_directo():
-    """Medir el sector de Banorte sobre Banorte no añade nada, y chocaría con
-    la clave única (news_guid, ticker, price_date)."""
+    """Medir el sector de una emisora sobre ella misma no añade nada, y chocaría
+    con la clave única (news_guid, ticker, price_date).
+
+    Se usa credito_automotriz porque es el único sector con un proxy único
+    (BBAJIOO.MX); tras la ampliación del universo los demás tienen varios.
+    """
     r = objetivos(
-        fila(lex_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
-             sector_affected="captacion_ahorro"),  # su proxy es GFNORTEO.MX
+        fila(lex_tickers=["BBAJIOO.MX"], fintechs_identified=["Nu"],
+             sector_affected="credito_automotriz"),  # su único proxy es BBAJIOO.MX
         FINTECHS,
     )
     assert len(r) == 1
@@ -141,7 +146,7 @@ def test_el_proxy_no_duplica_un_ticker_ya_directo():
 
 
 def test_proxy_parcial_cuando_solo_uno_coincide():
-    """banca_consumo mapea a dos emisoras; si una ya es directa, entra la otra."""
+    """banca_consumo mapea a tres emisoras; si una ya es directa, entran las otras."""
     r = objetivos(
         fila(lex_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
              sector_affected="banca_consumo"),
@@ -150,6 +155,7 @@ def test_proxy_parcial_cuando_solo_uno_coincide():
     assert {(x["ticker"], x["is_proxy"]) for x in r} == {
         ("GFNORTEO.MX", False),
         ("BBAJIOO.MX", True),
+        ("GENTERA.MX", True),
     }
 
 
