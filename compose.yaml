@@ -121,6 +121,7 @@ services:
 
       # --- Fuentes externas ---
       BANXICO_TOKEN: ${BANXICO_TOKEN:-}
+      INEGI_TOKEN: ${INEGI_TOKEN:-}
       REQUESTS_CACHE_PATH: ${REQUESTS_CACHE_PATH:-/app/data/cache/requests_cache.sqlite}
       CACHE_TTL_MARKET_SECONDS: ${CACHE_TTL_MARKET_SECONDS:-86400}
       CACHE_TTL_MACRO_SECONDS: ${CACHE_TTL_MACRO_SECONDS:-604800}

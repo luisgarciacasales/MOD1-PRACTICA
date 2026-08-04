@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     # --- Fuentes externas ---
     banxico_token: str = ""
+    inegi_token: str = ""
     requests_cache_path: Path = Path("/app/data/cache/requests_cache.sqlite")
     cache_ttl_market_seconds: int = 86_400   # diario
     cache_ttl_macro_seconds: int = 604_800   # semanal
