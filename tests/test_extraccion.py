@@ -206,7 +206,9 @@ def test_articulo_html_largo_ya_no_va_a_cuarentena():
         ("Banxico inyecta liquidez bancaria al sistema", "banca"),
         ("La banca digital gana terreno frente a la sucursal", "banca_digital"),
         ("La hiperpersonalización redefine la experiencia del cliente", "banca_digital"),
-        ("La digitalización de procesos reduce costos operativos", "banca_digital"),
+        # Con contexto bancario explícito. "digitalización de procesos" a secas
+        # NO califica: ver test_muletillas_de_negocio_no_son_banca_digital.
+        ("La digitalización bancaria reduce costos operativos", "banca_digital"),
         ("Los neobancos captan usuarios jóvenes", "banca_digital"),
     ],
 )
