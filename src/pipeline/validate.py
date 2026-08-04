@@ -22,6 +22,7 @@ from typing import Any
 from uuid import UUID
 
 from src.config import get_settings
+from src.config.banxico_series import SERIES_POR_ID
 from src.contracts import (
     DeadLetter,
     FintechDictEntry,
@@ -142,6 +143,21 @@ def normalizar_noticia(
     }
 
 
+def serie_vigente(series_id: str | None) -> bool:
+    """¿Sigue configurada esta serie de BANXICO?
+
+    Bronze es inmutable, así que sus lotes antiguos conservan series que después
+    se retiraron de la configuración. Sin este filtro, retirar una serie sería
+    imposible: cada reproceso la resucitaría desde Bronze, y como el dato es
+    numéricamente válido ningún contrato lo rechazaría — reaparecería en Gold sin
+    nombre y contaminaría el `macro_context` de las correlaciones.
+
+    No es un rechazo de calidad, es un dato fuera de alcance, así que no va a
+    cuarentena. Se omite y se informa del conteo en el resumen.
+    """
+    return series_id in SERIES_POR_ID
+
+
 def normalizar_macro(crudo: dict[str, Any]) -> dict[str, Any] | None:
     """Serie del SIE → contrato MacroIndicator.
 
@@ -189,8 +205,8 @@ def _cargar_fintechs(cur, lotes: list[Path]) -> tuple[int, tuple[str, ...]]:
 
 def procesar_lote(
     cur, ruta: Path, *, fintechs: tuple[str, ...]
-) -> tuple[db.Carga, int, Counter]:
-    """Valida y carga un lote. Devuelve (carga, rechazos, motivos)."""
+) -> tuple[db.Carga, int, Counter, int]:
+    """Valida y carga un lote. Devuelve (carga, rechazos, motivos, omitidas)."""
     meta, registros = leer_lote(ruta)
     source = meta["source"]
     batch_uuid = UUID(meta["batch_uuid"])
@@ -198,6 +214,7 @@ def procesar_lote(
     validos: list[Any] = []
     rechazos: list[DeadLetter] = []
     motivos: Counter = Counter()
+    omitidas = 0  # series de BANXICO ya retiradas de la configuración
 
     for crudo in registros:
         # Marcador de éxito parcial que inserta el adaptador de mercado; no es
@@ -212,6 +229,9 @@ def procesar_lote(
                 {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
             )
         elif source == "banxico":
+            if not serie_vigente(crudo.get("series_id")):
+                omitidas += 1
+                continue
             normalizado = normalizar_macro(crudo)
             resultado = (
                 validar_macro(normalizado, batch_uuid)
@@ -243,7 +263,7 @@ def procesar_lote(
             carga += db.cargar_macro(cur, validos)
 
     db.cargar_dead_letters(cur, rechazos)
-    return carga, len(rechazos), motivos
+    return carga, len(rechazos), motivos, omitidas
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -272,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     resumen: dict[str, db.Carga] = {}
     rechazos_por_fuente: Counter = Counter()
     motivos_totales: Counter = Counter()
+    omitidas_total = 0
 
     with db.conectar() as conexion:
         with conexion.cursor() as cur:
@@ -288,7 +309,8 @@ def main(argv: list[str] | None = None) -> int:
                 if source == "finnovista":
                     continue
 
-                carga, rechazos, motivos = procesar_lote(cur, ruta, fintechs=fintechs)
+                carga, rechazos, motivos, omitidas = procesar_lote(cur, ruta, fintechs=fintechs)
+                omitidas_total += omitidas
                 resumen.setdefault(source, db.Carga())
                 resumen[source] += carga
                 rechazos_por_fuente[source] += rechazos
@@ -312,6 +334,11 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{'TOTAL':<16} {total_nuevas:>8} "
           f"{sum(c.actualizadas for c in resumen.values()):>9} "
           f"{sum(rechazos_por_fuente.values()):>11}")
+
+    if omitidas_total:
+        print()
+        print(f"omitidas por serie retirada de la configuración: {omitidas_total}")
+        print("  (dato de Bronze fuera de alcance, no un rechazo de calidad)")
 
     if motivos_totales:
         print()

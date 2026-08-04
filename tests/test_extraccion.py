@@ -307,3 +307,15 @@ def test_captacion_no_financiera_se_descarta(texto):
 )
 def test_captacion_financiera_si_se_reconoce(texto):
     assert extraer_sector(texto) == "captacion_ahorro", texto
+
+
+def test_series_retiradas_de_la_configuracion_se_omiten():
+    """Bronze es inmutable y conserva series ya retiradas. Sin este filtro,
+    retirar una serie sería imposible: cada reproceso la resucitaría."""
+    from src.pipeline.validate import serie_vigente
+
+    assert serie_vigente("SF43783") is True      # TIIE, vigente
+    assert serie_vigente("SF61745") is True      # tasa objetivo, vigente
+    assert serie_vigente("SF46410") is False     # canasta del DEG, retirada
+    assert serie_vigente("SF63528") is False     # tipo de cambio duplicado, retirada
+    assert serie_vigente(None) is False
