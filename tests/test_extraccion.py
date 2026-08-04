@@ -267,3 +267,43 @@ def test_banca_digital_sigue_reconociendo_lo_que_debe():
                   "La digitalización bancaria acelera", "Los neobancos crecen",
                   "Apuestan por la hiperpersonalización de productos financieros"]:
         assert extraer_sector(texto) == "banca_digital", texto
+
+
+# --- "Captación": exclusivamente sector financiero (decisión del usuario) -----
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "La captación pluvial como pilar de infraestructura",
+        "Programa de captación de recursos hídricos en Nuevo León",
+        "Captación de agua de lluvia en escuelas rurales",
+        "La captación de talento joven es el reto de las empresas",
+        "Sistemas de captación solar para vivienda",
+    ],
+)
+def test_captacion_no_financiera_se_descarta(texto):
+    """La palabra sola no cuenta: debe estar anclada a un producto bancario.
+    Un sector mal asignado se propaga al proxy ticker y de ahí a la correlación,
+    así que aquí el falso positivo cuesta más que el falso negativo."""
+    assert extraer_sector(texto) != "captacion_ahorro"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "La captación bancaria creció 5% en el trimestre",
+        "Banorte impulsa su captación tradicional",
+        "Crece la captación de depósitos del público",
+        "Nuevas cuentas de inversión con rendimiento diario",
+        "Los depósitos a plazo ganan atractivo",
+        "Certificados de depósito a tasa fija",
+        "Las cuentas a la vista concentran el ahorro",
+        "Depósitos a la vista suben en el sistema",
+        "Pagaré con rendimiento liquidable al vencimiento",
+        "Cuenta de nómina sin comisiones",
+        "El ahorro para el retiro gana participación",
+    ],
+)
+def test_captacion_financiera_si_se_reconoce(texto):
+    assert extraer_sector(texto) == "captacion_ahorro", texto

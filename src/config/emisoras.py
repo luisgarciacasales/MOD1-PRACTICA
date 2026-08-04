@@ -96,14 +96,37 @@ LEXICO_SECTORES: dict[str, tuple[str, ...]] = {
                       "credito personal", "creditos personales",
                       "banca de consumo", "credito revolvente",
                       "credito nomina", "buy now pay later", "compra ahora paga despues"),
-    # "captacion" a secas se RETIRÓ el 2026-08-03: una nota titulada "la
+    # CAPTACIÓN — solo acepciones del sector financiero, ninguna otra.
+    #
+    # "captacion" a secas se retiró el 2026-08-03: una nota titulada "la
     # captación pluvial como pilar de infraestructura" acabó clasificada como
-    # captación bancaria. Ahora se exige el término compuesto.
-    "captacion_ahorro": ("captacion bancaria", "captacion tradicional",
-                         "captacion de recursos", "captacion de depositos",
-                         "cuenta de ahorro", "cuentas de ahorro",
-                         "deposito a plazo", "depositos a plazo",
-                         "pagare bancario", "ahorro voluntario"),
+    # captación bancaria. Y "captacion de recursos" se retiró después por el
+    # mismo motivo — "captación de recursos hídricos" es una expresión habitual
+    # en notas de infraestructura y medio ambiente.
+    #
+    # Criterio (decisión del usuario, 2026-08-03): la palabra solo cuenta cuando
+    # el término la ancla inequívocamente a un producto de captación bancaria —
+    # cuentas de inversión, a plazo o a la vista—. Cualquier otra connotación se
+    # descarta, aunque eso deje fuera alguna nota financiera legítima: aquí el
+    # falso positivo cuesta más que el falso negativo, porque un sector mal
+    # asignado se propaga al proxy ticker y de ahí a la correlación.
+    "captacion_ahorro": (
+        # La palabra con ancla bancaria explícita
+        "captacion bancaria", "captacion tradicional", "captacion de depositos",
+        "captacion del publico", "captacion de ahorro",
+        # Cuentas de inversión
+        "cuenta de inversion", "cuentas de inversion", "inversion a plazo fijo",
+        # Cuentas a plazo
+        "cuenta a plazo", "cuentas a plazo", "deposito a plazo", "depositos a plazo",
+        "certificado de deposito", "certificados de deposito",
+        "pagare bancario", "pagare con rendimiento liquidable",
+        # Cuentas a la vista
+        "cuenta a la vista", "cuentas a la vista",
+        "deposito a la vista", "depositos a la vista",
+        "cuenta de ahorro", "cuentas de ahorro", "cuenta de nomina",
+        # Ahorro previsional
+        "ahorro voluntario", "ahorro para el retiro",
+    ),
     "credito_automotriz": ("credito automotriz", "creditos automotrices",
                            "financiamiento automotriz", "credito para auto"),
     "pagos_digitales": ("pagos digitales", "pago digital",
