@@ -243,3 +243,25 @@ def test_politica_monetaria_de_fed_y_banxico_activa_el_bypass():
 
     assert es_macro("economista", "Banxico define su tasa objetivo tras la Fed") is True
     assert es_macro("economista", "El costo de fondeo sube con la política monetaria") is True
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "Hacia la ley mexicana de la inteligencia artificial",   # decía transformación digital
+        "¿Alguien está pensando en las green skills?",           # decía digitalización
+        "Nace gigante legal por fusión de despachos",            # decía transformación digital
+    ],
+)
+def test_muletillas_de_negocio_no_son_banca_digital(texto):
+    """Regresión de falsos positivos reales: "digitalizacion" y "transformacion
+    digital" a secas etiquetaban como banca digital notas de IA, sostenibilidad
+    y derecho corporativo. Ahora todos los términos exigen contexto bancario."""
+    assert extraer_sector(texto) != "banca_digital"
+
+
+def test_banca_digital_sigue_reconociendo_lo_que_debe():
+    for texto in ["La banca digital gana terreno", "Su app bancaria fue renovada",
+                  "La digitalización bancaria acelera", "Los neobancos crecen",
+                  "Apuestan por la hiperpersonalización de productos financieros"]:
+        assert extraer_sector(texto) == "banca_digital", texto

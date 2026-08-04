@@ -113,12 +113,21 @@ LEXICO_SECTORES: dict[str, tuple[str, ...]] = {
     # NUEVO (2026-08-03) — es la frontera real de competencia entre banca y
     # fintechs, y por eso sí resuelve proxy ticker. Va ANTES de "banca" para que
     # una nota sobre digitalización bancaria no caiga en el sector genérico.
+    #
+    # TODOS los términos exigen contexto bancario explícito. En la primera
+    # versión incluí "digitalizacion" y "transformacion digital" a secas, y
+    # etiquetaron como banca digital una nota sobre la ley de inteligencia
+    # artificial, otra sobre "green skills" y una tercera sobre una fusión de
+    # despachos legales. Son muletillas de negocio, no vocabulario financiero.
+    # Igual se descartó "experiencia del cliente", que vale para cualquier
+    # sector, y "onboarding digital", que se usa también en recursos humanos.
     "banca_digital": ("banca digital", "banco digital", "banca movil",
-                      "digitalizacion", "digitalizacion bancaria",
+                      "banca en linea", "banca por internet",
+                      "digitalizacion bancaria", "digitalizacion financiera",
+                      "digitalizacion de la banca",
                       "hiperpersonalizacion", "hiper personalizacion",
-                      "transformacion digital", "onboarding digital",
-                      "sucursal digital", "app bancaria", "experiencia del cliente",
-                      "neobanco", "neobancos"),
+                      "sucursal digital", "app bancaria", "aplicacion bancaria",
+                      "neobanco", "neobancos", "banco 100% digital"),
     "insurtech": ("seguros", "aseguradora", "aseguradoras", "poliza", "polizas",
                   "insurtech", "primaje", "siniestralidad"),
     # Sector genérico: temas de banca que NO son un segmento de producto
