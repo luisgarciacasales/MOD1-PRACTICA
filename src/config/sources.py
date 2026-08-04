@@ -11,6 +11,7 @@ Categoria = Literal["noticias", "mercado", "diccionario"]
 
 # Coincide con el enum `source` del esquema Bronze (PRD §5.1) y de silver_news.
 SourceId = Literal[
+    "google_news",
     "bmv_eventos",
     "financiero",
     "economista",
@@ -74,6 +75,16 @@ FUENTES: tuple[Fuente, ...] = (
         # general, y 4 noticias con ticker identificado frente a 1. El general
         # mezcla espectáculos y deportes, y además es panregional.
         "https://www.bloomberglinea.com/arc/outboundfeeds/rss/category/mercados/?outputType=xml",
+    ),
+    # AMPLIACIÓN 2026-08-04 — consultas dirigidas a Google News. Es la respuesta
+    # al cuello de botella del corpus: gratis, sin WAF y con consultas por
+    # institución. La URL real la construye src/config/google_news.py, que
+    # gestiona 14 consultas bajo este único source.
+    Fuente(
+        "google_news",
+        "Google News — consultas dirigidas",
+        "noticias",
+        None,
     ),
     # 3.3 — diccionario estático, carga única con actualización manual.
     Fuente("finnovista", "Finnovista Radar Fintech México", "diccionario", None),

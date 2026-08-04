@@ -319,3 +319,59 @@ def test_series_retiradas_de_la_configuracion_se_omiten():
     assert serie_vigente("SF46410") is False     # canasta del DEG, retirada
     assert serie_vigente("SF63528") is False     # tipo de cambio duplicado, retirada
     assert serie_vigente(None) is False
+
+
+# --- Google News (fuente añadida el 2026-08-04) ------------------------------
+
+
+def test_las_consultas_usan_frase_exacta():
+    """La medición fue contundente: `Banorte` crudo da 3% de precisión porque
+    Banorte patrocina un estadio; entre comillas sube al 50%."""
+    from src.config.google_news import CONSULTAS_INSTITUCIONES
+
+    sin_comillas = [c.etiqueta for c in CONSULTAS_INSTITUCIONES if '"' not in c.terminos]
+    assert sin_comillas == [], f"consultas sin frase exacta: {sin_comillas}"
+
+
+def test_la_url_acota_la_antiguedad():
+    """Sin `when:Nd` cada consulta devuelve meses de histórico en cada corrida y
+    el coste de inferencia se dispara reprocesando lo viejo."""
+    from src.config.google_news import CONSULTAS, url_de
+
+    u = url_de(CONSULTAS[0], ventana_dias=3)
+    assert "when%3A3d" in u
+    assert "hl=es-419" in u and "gl=MX" in u
+
+
+def test_google_news_es_fuente_de_noticias_valida():
+    from src.contracts import validar_noticia
+    from src.contracts.news import SilverNews
+    from uuid import uuid4
+
+    r = validar_noticia({
+        "source": "google_news",
+        "title": "Grupo Financiero Banorte supera expectativas de ingresos",
+        "content": "Grupo Financiero Banorte supera expectativas de ingresos",
+        "url": "https://news.google.com/rss/articles/ABC123",
+        "published_at": "2026-08-04T20:03:36+00:00",
+        "tickers": ["GFNORTEO.MX"],
+    }, uuid4())
+    assert isinstance(r, SilverNews)
+    assert r.source == "google_news"
+
+
+def test_preserva_el_medio_publicador():
+    """El campo `source` de Google News es el medio, y colisiona con el `source`
+    del pipeline. Si no se rescata antes, se pierde."""
+    from src.config.google_news import CONSULTAS
+    from src.sources.google_news import _entrada_a_dict
+
+    entrada = {
+        "title": "Supera Banorte expectativas",
+        "link": "https://news.google.com/rss/articles/X",
+        "source": {"title": "El Economista", "href": "https://eleconomista.com.mx"},
+    }
+    crudo = _entrada_a_dict(entrada, CONSULTAS[0])
+    assert crudo["medio_original"] == "El Economista"
+    assert crudo["source"] == "google_news"
+    assert crudo["_consulta"] == CONSULTAS[0].etiqueta

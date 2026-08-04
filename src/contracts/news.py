@@ -37,7 +37,12 @@ from src.texto import normalizar, terminos_presentes
 
 # Solo las fuentes de texto: yahoo_finance y banxico tienen sus propios
 # contratos, y finnovista es un diccionario, no una noticia.
-SourceNoticias = Literal["bmv_eventos", "financiero", "economista", "bloomberg"]
+# `google_news` agrupa las 14 consultas dirigidas en un único source: una fuente
+# por consulta habría inflado este enum y el CHECK de la tabla con valores que
+# cambian cada vez que se ajusta el catálogo (ver src/config/google_news.py).
+SourceNoticias = Literal[
+    "bmv_eventos", "financiero", "economista", "bloomberg", "google_news"
+]
 
 _URL_ADAPTER = TypeAdapter(HttpUrl)
 
@@ -190,7 +195,7 @@ def validar_noticia(
         )
 
     # --- Precondiciones que impiden siquiera calcular la clave natural --------
-    if source not in {"bmv_eventos", "financiero", "economista", "bloomberg"}:
+    if source not in {"bmv_eventos", "financiero", "economista", "bloomberg", "google_news"}:
         return rechazo(RejectionReason.UNKNOWN_SOURCE, f"source={source!r}")
 
     url = str(crudo.get("url", "")).strip()
