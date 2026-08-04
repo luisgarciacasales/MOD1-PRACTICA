@@ -375,3 +375,39 @@ def test_preserva_el_medio_publicador():
     assert crudo["medio_original"] == "El Economista"
     assert crudo["source"] == "google_news"
     assert crudo["_consulta"] == CONSULTAS[0].etiqueta
+
+
+# --- INEGI (fuente añadida el 2026-08-04) ------------------------------------
+
+
+def test_la_url_de_inegi_usa_los_parametros_verificados():
+    """Área `00` y fuente `BISE`. Con `0700` la API devuelve 400, y fue la causa
+    de los primeros fallos; `BIE` no respondió a ningún ID probado."""
+    from src.config.inegi_series import url_de
+
+    u = url_de("1002000001", "TOKEN")
+    assert "/es/00/false/BISE/2.0/TOKEN" in u
+    assert u.endswith("?type=json")
+    assert "/false/" in u   # serie histórica completa, no solo el último dato
+
+
+def test_inegi_sin_indicadores_falla_con_motivo_util():
+    """El catálogo está vacío a propósito: ningún ID entra sin confirmar qué
+    mide. El error debe explicar cómo obtenerlos, no solo que faltan."""
+    from src.sources.inegi import ingerir
+
+    r = ingerir(indicadores=())
+    assert r.ok is False
+    assert "indicadores" in (r.error or "").lower()
+    assert "inegi.org.mx/app/indicadores" in (r.error or "")
+
+
+def test_el_catalogo_de_inegi_no_trae_ids_sin_confirmar():
+    """Regresión de criterio: con BANXICO, cuatro de seis IDs del PRD medían
+    otra cosa y el fallo era silencioso porque el dato era válido."""
+    from src.config.inegi_series import INDICADORES
+
+    for ind in INDICADORES:
+        assert ind.nombre and not ind.nombre.endswith("?"), (
+            f"{ind.id} tiene nombre sin confirmar: {ind.nombre!r}"
+        )

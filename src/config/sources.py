@@ -19,6 +19,7 @@ SourceId = Literal[
     "finnovista",
     "yahoo_finance",
     "banxico",
+    "inegi",
 ]
 
 
@@ -91,6 +92,11 @@ FUENTES: tuple[Fuente, ...] = (
     # 3.4 y 3.5 — datos estructurados; contrato de tipos y rangos, no semántico.
     Fuente("yahoo_finance", "Yahoo Finance (yfinance)", "mercado", None),
     Fuente("banxico", "BANXICO SIE", "mercado", None),
+    # AMPLIACIÓN 2026-08-04 — actividad económica real: IGAE, desempleo y
+    # confianza del consumidor, que BANXICO no publica y que anticipan la
+    # morosidad de la cartera de consumo. Los IDs se configuran a mano en
+    # src/config/inegi_series.py: la API no permite descubrirlos.
+    Fuente("inegi", "INEGI — API de Indicadores", "mercado", None),
 )
 
 # Fuentes con perfil macroeconómico: publican notas de política monetaria que
