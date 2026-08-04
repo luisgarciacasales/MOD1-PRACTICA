@@ -191,3 +191,55 @@ def test_articulo_html_largo_ya_no_va_a_cuarentena():
     datos = normalizar_noticia(crudo, fintechs=())
     assert len(datos["content"]) <= LIMITE_CONTENIDO
     assert isinstance(validar_noticia(datos, uuid4()), SilverNews)
+
+
+# --- Términos del dominio financiero aportados por el usuario (2026-08-03) ---
+
+
+@pytest.mark.parametrize(
+    "texto,sector_esperado",
+    [
+        ("Aumenta el fraude bancario en cuentas digitales", "banca"),
+        ("La CNBV endurece el marco regulatorio para la banca", "banca"),
+        ("Las tasas de morosidad de la cartera crecen al 3%", "banca"),
+        ("El costo de fondeo presiona el margen financiero", "banca"),
+        ("Banxico inyecta liquidez bancaria al sistema", "banca"),
+        ("La banca digital gana terreno frente a la sucursal", "banca_digital"),
+        ("La hiperpersonalización redefine la experiencia del cliente", "banca_digital"),
+        ("La digitalización de procesos reduce costos operativos", "banca_digital"),
+        ("Los neobancos captan usuarios jóvenes", "banca_digital"),
+    ],
+)
+def test_lexico_financiero_del_dominio(texto, sector_esperado):
+    assert extraer_sector(texto) == sector_esperado
+
+
+def test_banca_digital_gana_al_sector_generico():
+    """Una nota sobre digitalización bancaria debe ser banca_digital, no banca:
+    solo el específico resuelve proxy ticker."""
+    assert extraer_sector(
+        "La digitalización de la banca múltiple avanza"
+    ) == "banca_digital"
+
+
+def test_captacion_pluvial_ya_no_es_captacion_bancaria():
+    """Regresión de un falso positivo real: "la captación pluvial como pilar de
+    infraestructura" se clasificaba como captacion_ahorro."""
+    assert extraer_sector("La captación pluvial como pilar de infraestructura") is None
+    assert extraer_sector("La captación bancaria creció 5%") == "captacion_ahorro"
+
+
+def test_banca_digital_resuelve_proxy_ticker():
+    """Es la frontera de competencia con los neobancos, así que debe poder
+    traducirse a emisora."""
+    from src.config.tickers import SECTOR_A_PROXY
+
+    assert SECTOR_A_PROXY["banca_digital"] == ("RA.MX", "GFNORTEO.MX")
+
+
+def test_politica_monetaria_de_fed_y_banxico_activa_el_bypass():
+    """Los términos que el usuario pidió cubrir ya estaban en el léxico macro."""
+    from src.contracts import es_macro
+
+    assert es_macro("economista", "Banxico define su tasa objetivo tras la Fed") is True
+    assert es_macro("economista", "El costo de fondeo sube con la política monetaria") is True

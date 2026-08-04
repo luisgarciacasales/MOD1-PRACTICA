@@ -94,8 +94,14 @@ LEXICO_SECTORES: dict[str, tuple[str, ...]] = {
     "banca_consumo": ("credito al consumo", "creditos al consumo",
                       "tarjeta de credito", "tarjetas de credito",
                       "credito personal", "creditos personales",
-                      "banca de consumo", "credito revolvente"),
-    "captacion_ahorro": ("captacion", "cuenta de ahorro", "cuentas de ahorro",
+                      "banca de consumo", "credito revolvente",
+                      "credito nomina", "buy now pay later", "compra ahora paga despues"),
+    # "captacion" a secas se RETIRÓ el 2026-08-03: una nota titulada "la
+    # captación pluvial como pilar de infraestructura" acabó clasificada como
+    # captación bancaria. Ahora se exige el término compuesto.
+    "captacion_ahorro": ("captacion bancaria", "captacion tradicional",
+                         "captacion de recursos", "captacion de depositos",
+                         "cuenta de ahorro", "cuentas de ahorro",
                          "deposito a plazo", "depositos a plazo",
                          "pagare bancario", "ahorro voluntario"),
     "credito_automotriz": ("credito automotriz", "creditos automotrices",
@@ -104,11 +110,42 @@ LEXICO_SECTORES: dict[str, tuple[str, ...]] = {
                         "terminal punto de venta", "terminales punto de venta",
                         "tpv", "transferencia electronica",
                         "transferencias electronicas", "codi", "dimo", "spei"),
+    # NUEVO (2026-08-03) — es la frontera real de competencia entre banca y
+    # fintechs, y por eso sí resuelve proxy ticker. Va ANTES de "banca" para que
+    # una nota sobre digitalización bancaria no caiga en el sector genérico.
+    "banca_digital": ("banca digital", "banco digital", "banca movil",
+                      "digitalizacion", "digitalizacion bancaria",
+                      "hiperpersonalizacion", "hiper personalizacion",
+                      "transformacion digital", "onboarding digital",
+                      "sucursal digital", "app bancaria", "experiencia del cliente",
+                      "neobanco", "neobancos"),
     "insurtech": ("seguros", "aseguradora", "aseguradoras", "poliza", "polizas",
-                  "insurtech"),
+                  "insurtech", "primaje", "siniestralidad"),
+    # Sector genérico: temas de banca que NO son un segmento de producto
+    # concreto. No resuelve proxy —una nota sobre fraude o regulación no habla
+    # de una fintech compitiendo— pero sí hace la noticia identificable y por
+    # tanto la salva de la cuarentena.
     "banca": ("banca multiple", "sistema financiero", "institucion de banca",
-              "instituciones de banca", "cartera vencida",
-              "indice de morosidad", "margen financiero"),
+              "instituciones de banca",
+              # Riesgo de crédito
+              "cartera vencida", "indice de morosidad", "tasa de morosidad",
+              "tasas de morosidad", "morosidad", "provisiones preventivas",
+              "quebranto",
+              # Rentabilidad y fondeo
+              "margen financiero", "costo de fondeo", "costos de fondeo",
+              "margen de interes", "spread bancario",
+              # Liquidez y solvencia
+              "liquidez bancaria", "liquidez del sistema", "coeficiente de cobertura",
+              "indice de capitalizacion", "requerimiento de capital", "basilea",
+              # Fraude y seguridad
+              "fraude bancario", "fraudes bancarios", "robo de identidad",
+              "suplantacion de identidad", "lavado de dinero",
+              "prevencion de lavado", "ciberseguridad bancaria",
+              # Regulación y supervisión
+              "regulacion bancaria", "regulacion financiera", "marco regulatorio",
+              "ley fintech", "cnbv", "condusef", "sanciones regulatorias",
+              "comisiones bancarias"),
     "bursatil": ("bolsa mexicana de valores", "bmv", "biva", "indice de precios",
-                 "s&p/bmv ipc", "emisora", "emisoras", "oferta publica"),
+                 "s&p/bmv ipc", "emisora", "emisoras", "oferta publica",
+                 "colocacion de deuda", "oferta publica inicial"),
 }

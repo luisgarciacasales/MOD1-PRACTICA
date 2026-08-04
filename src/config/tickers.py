@@ -96,8 +96,13 @@ SECTOR_A_PROXY: dict[str, tuple[str, ...]] = {
     "captacion_ahorro": ("GFNORTEO.MX", "RA.MX"),
     # Fuerte presencia en financiamiento automotriz.
     "credito_automotriz": ("BBAJIOO.MX",),
-    # Redes de TPV y banca digital. Inbursa opera adquirencia y corresponsales.
+    # Redes de TPV y adquirencia. Inbursa opera adquirencia y corresponsales.
     "pagos_digitales": ("GFNORTEO.MX", "GFINBURO.MX"),
+    # NUEVO (2026-08-03) — la digitalización y la hiperpersonalización son la
+    # frontera donde los neobancos compiten con la banca. Banregio va primero
+    # por ser la matriz de Hey Banco, un banco digital de pleno derecho;
+    # Banorte por el tamaño de su apuesta digital.
+    "banca_digital": ("RA.MX", "GFNORTEO.MX"),
     # CORREGIDO (2026-08-03): antes apuntaba a WALMEX, que no es una aseguradora
     # — debilidad que el propio PRD §3.3 marcaba para revisión en Fase 2.
     # Quálitas sí cotiza y sí es aseguradora: el proxy pasa a ser real en vez

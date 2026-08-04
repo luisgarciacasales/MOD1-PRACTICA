@@ -44,6 +44,17 @@ LEXICO_MACRO: frozenset[str] = frozenset({
     "producto interno bruto",
     "pib",
     "igae",
+    "remesas",
+    # Condiciones de fondeo del sistema. Añadidos el 2026-08-03: son decisiones
+    # y consecuencias de política monetaria, así que pertenecen aquí y no al
+    # léxico sectorial. Se usan formas COMPUESTAS a propósito: "liquidez" a
+    # secas describe también la de una empresa o un mercado cualquiera, y
+    # ampliar el bypass con un término tan general desharía el endurecimiento
+    # de ADR-10.
+    "costo de fondeo",
+    "liquidez del sistema",
+    "liquidez bancaria",
+    "condiciones monetarias",
     # Actores externos con efecto directo en la política local
     "reserva federal",
     "fed",
