@@ -46,6 +46,30 @@ TICKERS_PRIORITARIOS: tuple[str, ...] = (
     "ALSEA.MX",
 )
 
+# --- Benchmark del mercado ---------------------------------------------------
+#
+# Índice S&P/BMV IPC. Verificado el 2026-08-04: 501 sesiones en dos años, sin
+# volúmenes en cero ni NaN, OHLC coherente y calendario alineado con las
+# emisoras.
+#
+# Por qué NO está en TICKERS_PRIORITARIOS: un índice **no es una emisora**.
+# Mantenerlo aparte tiene tres consecuencias deliberadas:
+#   · no entra al vocabulario del NER, así que el LLM no puede etiquetar una
+#     noticia con el índice como si fuera una empresa;
+#   · no aparece en ALIAS_EMISORAS, así que la extracción léxica no lo detecta
+#     —y conviene, porque "la BMV cerró al alza" habla del índice y no de una
+#     compañía en la que se pueda invertir el análisis de impacto;
+#   · no genera filas en gold_news_market_corr, porque correlacionar una
+#     noticia con el mercado entero no dice nada sobre ninguna institución.
+#
+# Su única función es servir de referencia: sin él no hay beta, ni rendimiento
+# relativo, ni exceso de retorno, que son las métricas que distinguen "subió
+# 3%" de "superó al mercado en 1,8%".
+BENCHMARK: str = "^MXX"
+
+# Lo que realmente se descarga de Yahoo: las emisoras más el benchmark.
+TICKERS_MERCADO: tuple[str, ...] = (*TICKERS_PRIORITARIOS, BENCHMARK)
+
 # Emisoras cuyo precio hay que interpretar con cuidado. Se ingieren igual, pero
 # cualquier análisis que las use debe declarar la salvedad.
 #

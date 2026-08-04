@@ -15,6 +15,7 @@ import argparse
 import json
 
 from src.config.banxico_series import SERIES_POR_ID
+from src.config.tickers import BENCHMARK
 from src.pipeline import db
 
 # Dos decisiones dentro de esta consulta que conviene no perder de vista:
@@ -35,25 +36,56 @@ WITH base AS (
     FROM silver_market_prices
     WINDOW v AS (PARTITION BY ticker ORDER BY date)
 ),
+-- El retorno del benchmark, extraído de la misma CTE para que se calcule
+-- exactamente igual que el de las emisoras.
+bench AS (
+    SELECT date, ret AS ret_bench FROM base WHERE ticker = %(benchmark)s
+),
 calc AS (
-    SELECT *,
-        AVG(adj_close)   OVER (v ROWS BETWEEN  6 PRECEDING AND CURRENT ROW) AS m7,
-        AVG(adj_close)   OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS m30,
-        STDDEV_SAMP(ret) OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS vol30,
-        COUNT(*)         OVER (v ROWS BETWEEN  6 PRECEDING AND CURRENT ROW) AS n7,
-        COUNT(*)         OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS n30
-    FROM base
-    WINDOW v AS (PARTITION BY ticker ORDER BY date)
+    SELECT b.*, k.ret_bench,
+        AVG(b.adj_close)   OVER (v ROWS BETWEEN  6 PRECEDING AND CURRENT ROW) AS m7,
+        AVG(b.adj_close)   OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS m30,
+        STDDEV_SAMP(b.ret) OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS vol30,
+        COUNT(*)           OVER (v ROWS BETWEEN  6 PRECEDING AND CURRENT ROW) AS n7,
+        COUNT(*)           OVER (v ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) AS n30,
+        -- Beta = covarianza(emisora, índice) / varianza(índice) sobre 60
+        -- sesiones. COVAR_SAMP y VAR_SAMP son agregados, y PostgreSQL admite
+        -- usar agregados como funciones de ventana, así que la beta móvil sale
+        -- en la misma pasada sin subconsultas correlacionadas.
+        COVAR_SAMP(b.ret, k.ret_bench) OVER (v ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+            AS cov60,
+        VAR_SAMP(k.ret_bench)          OVER (v ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+            AS var60,
+        CORR(b.ret, k.ret_bench)       OVER (v ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+            AS corr60,
+        COUNT(k.ret_bench)             OVER (v ROWS BETWEEN 59 PRECEDING AND CURRENT ROW)
+            AS n60
+    FROM base b
+    -- LEFT JOIN: si el índice no publicó ese día, la emisora conserva su
+    -- retorno absoluto y las métricas relativas quedan NULL. Un INNER JOIN
+    -- borraría la fila entera y perdería el precio.
+    LEFT JOIN bench k ON k.date = b.date
+    WINDOW v AS (PARTITION BY b.ticker ORDER BY b.date)
 )
 INSERT INTO gold_market_prices (
     ticker, date, open, high, low, close, adj_close, volume,
-    daily_return_pct, ma_7d, ma_30d, volatility_30d, ingested_at
+    daily_return_pct, ma_7d, ma_30d, volatility_30d,
+    benchmark_return_pct, excess_return_pct, beta_60d, correlacion_60d,
+    ingested_at
 )
 SELECT ticker, date, open, high, low, close, adj_close, volume,
        ret,
        CASE WHEN n7  = 7  THEN m7  END,
        CASE WHEN n30 = 30 THEN m30 END,
        CASE WHEN n30 = 30 THEN vol30 END,
+       -- Métricas relativas. Se anulan en la fila del propio índice: su exceso
+       -- es 0 y su beta 1 por definición, y dejarlas distorsionaría cualquier
+       -- agregación sobre el conjunto de emisoras.
+       CASE WHEN ticker <> %(benchmark)s THEN ret_bench END,
+       CASE WHEN ticker <> %(benchmark)s THEN ret - ret_bench END,
+       CASE WHEN ticker <> %(benchmark)s AND n60 = 60
+            THEN cov60 / NULLIF(var60, 0) END,
+       CASE WHEN ticker <> %(benchmark)s AND n60 = 60 THEN corr60 END,
        NOW()
 FROM calc
 ON CONFLICT (ticker, date) DO UPDATE SET
@@ -61,7 +93,12 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     close = EXCLUDED.close, adj_close = EXCLUDED.adj_close, volume = EXCLUDED.volume,
     daily_return_pct = EXCLUDED.daily_return_pct,
     ma_7d = EXCLUDED.ma_7d, ma_30d = EXCLUDED.ma_30d,
-    volatility_30d = EXCLUDED.volatility_30d, ingested_at = NOW()
+    volatility_30d = EXCLUDED.volatility_30d,
+    benchmark_return_pct = EXCLUDED.benchmark_return_pct,
+    excess_return_pct = EXCLUDED.excess_return_pct,
+    beta_60d = EXCLUDED.beta_60d,
+    correlacion_60d = EXCLUDED.correlacion_60d,
+    ingested_at = NOW()
 RETURNING (xmax = 0)
 """
 
@@ -110,7 +147,7 @@ def ejecutar() -> int:
     nombres = json.dumps({s.id: s.nombre for s in SERIES_POR_ID.values()})
 
     with db.conectar() as conexion, conexion.cursor() as cur:
-        cur.execute(_SQL_PRECIOS)
+        cur.execute(_SQL_PRECIOS, {"benchmark": BENCHMARK})
         p_nuevas, p_act = _contar(cur)
 
         cur.execute(_SQL_MACRO, {"nombres": nombres})
@@ -121,10 +158,12 @@ def ejecutar() -> int:
             SELECT COUNT(*) FILTER (WHERE daily_return_pct IS NOT NULL),
                    COUNT(*) FILTER (WHERE ma_7d IS NOT NULL),
                    COUNT(*) FILTER (WHERE ma_30d IS NOT NULL),
-                   COUNT(*) FILTER (WHERE volatility_30d IS NOT NULL)
+                   COUNT(*) FILTER (WHERE volatility_30d IS NOT NULL),
+                   COUNT(*) FILTER (WHERE excess_return_pct IS NOT NULL),
+                   COUNT(*) FILTER (WHERE beta_60d IS NOT NULL)
             FROM gold_market_prices
         """)
-        con_ret, con_m7, con_m30, con_vol = cur.fetchone()
+        con_ret, con_m7, con_m30, con_vol, con_exc, con_beta = cur.fetchone()
 
         cur.execute(
             "SELECT COUNT(*) FILTER (WHERE yoy_change_pct IS NOT NULL) FROM gold_macro_indicators"
@@ -142,6 +181,8 @@ def ejecutar() -> int:
     print(f"  ma_7d             {con_m7}")
     print(f"  ma_30d            {con_m30}")
     print(f"  volatility_30d    {con_vol}")
+    print(f"  excess_return_pct {con_exc}   (frente al benchmark {BENCHMARK})")
+    print(f"  beta_60d          {con_beta}")
     print(f"  yoy_change_pct    {con_yoy}")
     print()
     print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas}  "

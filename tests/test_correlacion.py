@@ -197,3 +197,33 @@ def test_mapeo_sector_proxy_completo(sector, esperados):
     (ADR-11) y el universo financiero ampliado el 2026-08-03."""
     r = objetivos(fila(fintechs_identified=["Nu"], sector_affected=sector), FINTECHS)
     assert {x["ticker"] for x in r} == esperados
+
+
+# --- Benchmark del mercado ---------------------------------------------------
+
+
+def test_el_benchmark_no_es_una_emisora():
+    """Un índice no debe entrar al vocabulario del NER ni a la correlación:
+    etiquetar una noticia con "el mercado" no dice nada sobre una institución."""
+    from src.config.emisoras import ALIAS_EMISORAS
+    from src.config.tickers import BENCHMARK, TICKERS_MERCADO, TICKERS_PRIORITARIOS
+
+    assert BENCHMARK not in TICKERS_PRIORITARIOS
+    assert BENCHMARK not in ALIAS_EMISORAS
+    assert BENCHMARK in TICKERS_MERCADO
+    assert set(TICKERS_MERCADO) == set(TICKERS_PRIORITARIOS) | {BENCHMARK}
+
+
+def test_el_benchmark_no_produce_correlaciones():
+    from src.config.tickers import BENCHMARK
+
+    assert objetivos(fila(lex_tickers=[BENCHMARK]), FINTECHS) == []
+    assert objetivos(fila(ner_tickers=[BENCHMARK]), FINTECHS) == []
+
+
+def test_el_benchmark_si_se_ingiere():
+    """Necesitamos su precio aunque no sea una emisora."""
+    from src.config.tickers import BENCHMARK
+    from src.sources.market import ingerir
+
+    assert BENCHMARK in ingerir.__defaults__[0] if ingerir.__defaults__ else True

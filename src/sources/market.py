@@ -3,6 +3,10 @@
 Los símbolos vienen de `src/config/tickers.py`, ya corregidos: tres de los ocho
 del PRD no existen en Yahoo porque les faltaba la serie accionaria (ADR-11).
 
+Se descarga `TICKERS_MERCADO`, que son las emisoras **más el benchmark** `^MXX`.
+El índice se ingiere como cualquier serie de precios pero se excluye del
+vocabulario del NER y de la correlación: ver la nota de BENCHMARK en la config.
+
 Sobre el caché: yfinance 0.2.66 gestiona su propia sesión HTTP y ya no acepta
 de forma fiable una `requests.Session` externa, así que `requests-cache` no
 puede interceptarlo aquí. La mitigación del riesgo nº7 del PRD (rate limiting)
@@ -16,7 +20,7 @@ import time
 from datetime import date
 from typing import Any
 
-from src.config.tickers import TICKERS_PRIORITARIOS, VENTANA_HISTORICA_ANIOS
+from src.config.tickers import TICKERS_MERCADO, VENTANA_HISTORICA_ANIOS
 from src.sources.base import ResultadoFuente
 
 # El PRD §9 recomienda espaciar 0.5–1 s entre solicitudes en producción.
@@ -25,7 +29,7 @@ PAUSA_ENTRE_TICKERS = 0.6
 
 def ingerir(
     *,
-    tickers: tuple[str, ...] = TICKERS_PRIORITARIOS,
+    tickers: tuple[str, ...] = TICKERS_MERCADO,
     periodo: str | None = None,
 ) -> ResultadoFuente:
     """Descarga el histórico de cada ticker.
