@@ -45,11 +45,10 @@ validación y envenena la interpretación.
 `FREQ = 8` corresponde a las series mensuales, y eso sí es consistente en los
 tres indicadores confirmados.
 
-El campo `UNIT`, en cambio, **no sirve como atajo**. Tras dos indicadores parecía
-que `1051` era índice y `3` tasa porcentual, pero la confianza del consumidor
-devolvió `1014` —otro índice con otro código—. `UNIT` remite a un catálogo que la
-API no expone, así que sus valores no se pueden interpretar: son etiquetas
-opacas. La única validación fiable sigue siendo **mirar el rango de valores y la
+El campo `UNIT`, en cambio, **no sirve como atajo**. Los cinco indicadores
+confirmados devuelven `1051`, `3`, `1014` y `9911` — cuatro códigos distintos
+para dos índices, una tasa y otro índice. `UNIT` remite a un catálogo que la API
+no expone, así que sus valores no se pueden interpretar: son etiquetas opacas. La única validación fiable sigue siendo **mirar el rango de valores y la
 periodicidad** y comprobar que encajan con lo que se supone que mide.
 
 Las consultas **múltiples** funcionan separando IDs por coma
@@ -136,6 +135,15 @@ INDICADORES: tuple[IndicadorInegi, ...] = (
     # energéticos y agropecuarios, mucho más volátiles, y su frecuencia
     # quincenal lo hace el dato de inflación más oportuno disponible.
     IndicadorInegi("910420", "INPC general (quincenal)", "quincenal"),
+    # Confirmado el 2026-08-05: 271 observaciones mensuales de 2003/12 a 2026/06,
+    # índice de 48,57 a 136,09 — consistente con un INPP base 2019=100. Último
+    # dato 135,547 en junio de 2026. La variante exacta ("sin petróleo") la
+    # identificó el usuario en la consola del INEGI.
+    # Aporta lo que ningún otro indicador del conjunto cubre: presión de COSTOS
+    # sobre las empresas, aguas arriba de la inflación al consumidor. Un INPP que
+    # sube antes que el INPC anticipa compresión de márgenes; excluir el petróleo
+    # aísla la señal del ruido de los energéticos.
+    IndicadorInegi("910491", "INPP sin petróleo", "mensual"),
 )
 
 INDICADORES_POR_ID: dict[str, IndicadorInegi] = {i.id: i for i in INDICADORES}
