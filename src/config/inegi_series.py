@@ -42,11 +42,15 @@ validación y envenena la interpretación.
 
 ## Señales para validar un indicador nuevo
 
-El campo `UNIT` de la respuesta ayuda a confirmar que el ID mide lo que se cree:
-`1051` aparece en índices (IGAE) y `3` en tasas porcentuales (desocupación).
-`FREQ = 8` corresponde a las series mensuales. No sustituyen a mirar el rango de
-valores —una tasa de desempleo entre 2 y 6 es creíble, un índice base 100 que va
-de 55 a 108 también— pero son una comprobación extra barata.
+`FREQ = 8` corresponde a las series mensuales, y eso sí es consistente en los
+tres indicadores confirmados.
+
+El campo `UNIT`, en cambio, **no sirve como atajo**. Tras dos indicadores parecía
+que `1051` era índice y `3` tasa porcentual, pero la confianza del consumidor
+devolvió `1014` —otro índice con otro código—. `UNIT` remite a un catálogo que la
+API no expone, así que sus valores no se pueden interpretar: son etiquetas
+opacas. La única validación fiable sigue siendo **mirar el rango de valores y la
+periodicidad** y comprobar que encajan con lo que se supone que mide.
 
 Las consultas **múltiples** funcionan separando IDs por coma
 (`.../INDICATOR/737121,444603/...`). Aquí se hace una petición por indicador a
@@ -103,6 +107,14 @@ INDICADORES: tuple[IndicadorInegi, ...] = (
     # Es el indicador que anticipa la morosidad de la cartera de consumo, el
     # terreno donde compiten los neobancos con la banca tradicional.
     IndicadorInegi("444603", "Tasa de desocupación (ENOE)", "mensual"),
+    # Confirmado el 2026-08-05: 304 observaciones mensuales de 2001/04 a 2026/07,
+    # valores entre 28,67 y 48,90. Coherente con el Índice de Confianza del
+    # Consumidor, que en México oscila en la banda 30-50 y NO está centrado en
+    # 100. Último dato 45,08 en julio de 2026.
+    # Es el indicador macro MÁS OPORTUNO del conjunto: llega hasta julio cuando
+    # el IGAE solo alcanza mayo, así que es el que antes refleja un cambio de
+    # ánimo en la demanda de crédito al consumo.
+    IndicadorInegi("454168", "Índice de Confianza del Consumidor (ENCO)", "mensual"),
 )
 
 INDICADORES_POR_ID: dict[str, IndicadorInegi] = {i.id: i for i in INDICADORES}
