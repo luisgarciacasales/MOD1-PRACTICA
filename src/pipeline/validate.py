@@ -174,8 +174,18 @@ def normalizar_inegi(crudo: dict[str, Any]) -> dict[str, Any] | None:
     cada correlación. No hay colisión de claves: los `series_id` de BANXICO
     empiezan por letra (`SF`, `SP`) y los del INEGI son numéricos.
 
-    El periodo llega como `aaaa/mm` en las mensuales y `aaaa` en las anuales.
-    Se ancla al día 1 del periodo, igual que BANXICO hace con sus mensuales.
+    Formatos de `TIME_PERIOD` según la frecuencia:
+
+        anual       `2020`         → 1 de enero
+        mensual     `2026/05`      → día 1 del mes
+        quincenal   `2026/06/02`   → tercer segmento = QUINCENA (01 o 02)
+
+    **La quincena importa.** Ignorar el tercer segmento hace que las dos
+    quincenas de un mes caigan en el mismo día, y con la clave única
+    `(series_id, date)` la segunda sobrescribe a la primera **sin error**: el
+    INPC quincenal habría perdido la mitad de sus 925 observaciones en silencio.
+    Se mapea la quincena 01 al día 1 y la 02 al día 16, convención habitual que
+    preserva orden y unicidad.
     """
     periodo = str(crudo.get("periodo") or "").strip()
     texto_valor = str(crudo.get("valor") or "").replace(",", "").strip()
@@ -183,7 +193,14 @@ def normalizar_inegi(crudo: dict[str, Any]) -> dict[str, Any] | None:
         partes = periodo.split("/")
         anio = int(partes[0])
         mes = int(partes[1]) if len(partes) > 1 else 1
-        fecha = date(anio, mes, 1)
+        if len(partes) > 2:
+            quincena = int(partes[2])
+            if quincena not in (1, 2):
+                return None
+            dia = 1 if quincena == 1 else 16
+        else:
+            dia = 1
+        fecha = date(anio, mes, dia)
         valor = float(texto_valor)
     except (ValueError, IndexError, AttributeError):
         return None

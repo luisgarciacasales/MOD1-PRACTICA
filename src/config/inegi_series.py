@@ -56,6 +56,20 @@ Las consultas **múltiples** funcionan separando IDs por coma
 (`.../INDICATOR/737121,444603/...`). Aquí se hace una petición por indicador a
 propósito: así el fail-soft es por indicador y el caché se invalida por separado.
 
+## Formatos de `TIME_PERIOD`
+
+Varían con la frecuencia, y confundirlos corrompe la serie:
+
+    anual       `2020`          → se ancla al 1 de enero
+    mensual     `2026/05`       → se ancla al día 1 del mes
+    quincenal   `2026/06/02`    → el tercer segmento es la QUINCENA (01 o 02)
+
+El caso quincenal estuvo a punto de costar la mitad del INPC: ignorar el tercer
+segmento hace que ambas quincenas de un mes caigan en el mismo día, y con la
+clave única `(series_id, date)` la segunda sobrescribe a la primera sin error.
+Se mapea la quincena 01 al día 1 y la 02 al día 16, que es la convención
+habitual y preserva orden y unicidad.
+
 ## Orden de las observaciones
 
 La API devuelve `OBSERVATIONS` **de más reciente a más antigua**. No se reordena
@@ -67,7 +81,7 @@ from __future__ import annotations
 
 from typing import Literal, NamedTuple
 
-Frecuencia = Literal["mensual", "trimestral", "anual"]
+Frecuencia = Literal["quincenal", "mensual", "trimestral", "anual"]
 
 # Ruta verificada de la API de Indicadores v2.0.
 BASE_URL = "https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR"
@@ -115,6 +129,13 @@ INDICADORES: tuple[IndicadorInegi, ...] = (
     # el IGAE solo alcanza mayo, así que es el que antes refleja un cambio de
     # ánimo en la demanda de crédito al consumo.
     IndicadorInegi("454168", "Índice de Confianza del Consumidor (ENCO)", "mensual"),
+    # Confirmado el 2026-08-05: 925 observaciones QUINCENALES de 1988/01/01 a
+    # 2026/07/01, índice que va de 4,64 a 145,86 — el INPC general con base
+    # 2018=100. Último dato 145,091.
+    # Complementa al subyacente de BANXICO (SP74625): el general incluye
+    # energéticos y agropecuarios, mucho más volátiles, y su frecuencia
+    # quincenal lo hace el dato de inflación más oportuno disponible.
+    IndicadorInegi("910420", "INPC general (quincenal)", "quincenal"),
 )
 
 INDICADORES_POR_ID: dict[str, IndicadorInegi] = {i.id: i for i in INDICADORES}

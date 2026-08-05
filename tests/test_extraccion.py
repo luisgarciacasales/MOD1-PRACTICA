@@ -456,3 +456,28 @@ def test_indicador_retirado_se_omite():
     assert indicador_vigente("737121") is True
     assert indicador_vigente("999999") is False
     assert indicador_vigente(None) is False
+
+
+def test_las_dos_quincenas_no_colisionan():
+    """Regresión de un fallo detectado antes de ingerir: ignorar el tercer
+    segmento hacía que ambas quincenas cayeran en el día 1, y con la clave única
+    (series_id, date) la segunda sobrescribía a la primera SIN error. El INPC
+    quincenal habría perdido la mitad de sus 925 observaciones en silencio."""
+    from src.pipeline.validate import normalizar_inegi
+
+    q1 = normalizar_inegi({"indicador_id": "910420", "periodo": "2026/06/01",
+                           "valor": "145.274"})
+    q2 = normalizar_inegi({"indicador_id": "910420", "periodo": "2026/06/02",
+                           "valor": "144.988"})
+    assert q1["date"] == date(2026, 6, 1)
+    assert q2["date"] == date(2026, 6, 16)
+    assert q1["date"] != q2["date"]
+    assert q1["value"] != q2["value"]
+
+
+@pytest.mark.parametrize("periodo", ["2026/06/03", "2026/06/00", "2026/06/99"])
+def test_quincena_invalida_se_rechaza(periodo):
+    from src.pipeline.validate import normalizar_inegi
+
+    assert normalizar_inegi({"indicador_id": "910420", "periodo": periodo,
+                             "valor": "145.0"}) is None
