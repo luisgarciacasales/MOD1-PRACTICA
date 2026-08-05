@@ -265,3 +265,35 @@ def test_los_extremos_de_la_curva_estan_en_el_contexto():
 
     assert CURVA_CORTO in SERIES_EN_CONTEXTO
     assert CURVA_LARGO in SERIES_EN_CONTEXTO
+
+
+# --- Batch diario ------------------------------------------------------------
+
+
+def test_el_orden_de_las_etapas_no_es_arbitrario():
+    """Cada etapa consume lo que produjo la anterior."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("batch", "/app/scripts/batch.py")
+    batch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(batch)
+
+    nombres = [n for n, _ in batch.ETAPAS]
+    assert nombres == ["ingest", "validate", "enrich", "transform", "correlate", "index"]
+
+
+def test_el_guardia_de_horario_distingue_los_tres_casos():
+    """Antes del cierre bloquea; después y en fin de semana deja pasar. El fin
+    de semana no habrá vela nueva, pero tampoco una incompleta."""
+    import importlib.util
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    spec = importlib.util.spec_from_file_location("batch", "/app/scripts/batch.py")
+    batch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(batch)
+    tz = ZoneInfo("America/Mexico_City")
+
+    assert batch._mercado_cerrado(datetime(2026, 8, 5, 12, 0, tzinfo=tz)) is False  # mié 12:00
+    assert batch._mercado_cerrado(datetime(2026, 8, 5, 15, 30, tzinfo=tz)) is True   # mié 15:30
+    assert batch._mercado_cerrado(datetime(2026, 8, 8, 10, 0, tzinfo=tz)) is True    # sábado

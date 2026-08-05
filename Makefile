@@ -82,7 +82,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama ingest validate enrich transform correlate index search demo evidencia bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial ingest validate enrich transform correlate index search demo evidencia bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -157,6 +157,13 @@ tunnel: ## Túnel SSH a Postgres del host remoto (solo MODO=remoto)
 	ssh -N -L $(PG_PORT):127.0.0.1:5432 $(REMOTE)
 
 ## --- Pipeline ---------------------------------------------------------------
+
+batch: ## Corrida diaria completa: las 6 etapas en orden, con log (uso: make batch ARGS=--ignorar-horario)
+	$(RUN) '$(COMPOSE) exec -T app python scripts/batch.py $(ARGS)'
+
+historial: ## Una línea por corrida del batch, para ver la estabilidad entre días
+	$(RUN) 'cd $(DIR) && tail -20 data/logs/historial.log 2>/dev/null || echo "(sin corridas registradas)"'
+
 
 enrich: ## Enriquecimiento NLP con Ollama (uso: make enrich ARGS="--limit 10")
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.enrich $(ARGS)'
