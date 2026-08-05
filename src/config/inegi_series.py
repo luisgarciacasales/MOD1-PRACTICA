@@ -40,6 +40,18 @@ validación y envenena la interpretación.
                        combinación durante horas. La aportó el usuario desde la
                        consola web, y con ella el IGAE responde a la primera.
 
+## Señales para validar un indicador nuevo
+
+El campo `UNIT` de la respuesta ayuda a confirmar que el ID mide lo que se cree:
+`1051` aparece en índices (IGAE) y `3` en tasas porcentuales (desocupación).
+`FREQ = 8` corresponde a las series mensuales. No sustituyen a mirar el rango de
+valores —una tasa de desempleo entre 2 y 6 es creíble, un índice base 100 que va
+de 55 a 108 también— pero son una comprobación extra barata.
+
+Las consultas **múltiples** funcionan separando IDs por coma
+(`.../INDICATOR/737121,444603/...`). Aquí se hace una petición por indicador a
+propósito: así el fail-soft es por indicador y el caché se invalida por separado.
+
 ## Orden de las observaciones
 
 La API devuelve `OBSERVATIONS` **de más reciente a más antigua**. No se reordena
@@ -85,6 +97,12 @@ INDICADORES: tuple[IndicadorInegi, ...] = (
     # Es el proxy mensual del PIB — el PIB trimestral llega demasiado tarde para
     # explicar el movimiento de una acción.
     IndicadorInegi("737121", "IGAE — Indicador Global de Actividad Económica", "mensual"),
+    # Confirmado el 2026-08-05: 258 observaciones mensuales de 2005/01 a 2026/06,
+    # valores entre 2,22 y 6,34 — inequívocamente una tasa porcentual (UNIT=3).
+    # Último dato 2,90% en junio de 2026.
+    # Es el indicador que anticipa la morosidad de la cartera de consumo, el
+    # terreno donde compiten los neobancos con la banca tradicional.
+    IndicadorInegi("444603", "Tasa de desocupación (ENOE)", "mensual"),
 )
 
 INDICADORES_POR_ID: dict[str, IndicadorInegi] = {i.id: i for i in INDICADORES}
