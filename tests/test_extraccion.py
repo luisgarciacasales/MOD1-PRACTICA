@@ -381,12 +381,13 @@ def test_preserva_el_medio_publicador():
 
 
 def test_la_url_de_inegi_usa_los_parametros_verificados():
-    """Área `00` y fuente `BISE`. Con `0700` la API devuelve 400, y fue la causa
-    de los primeros fallos; `BIE` no respondió a ningún ID probado."""
+    """Área `00` y fuente `BIE-BISE`, valor literal combinado. Ni `BIE` ni
+    `BISE` por separado sirven para las series económicas, y toda la
+    documentación del INEGI usa ejemplos con `BISE` — de ahí que costara."""
     from src.config.inegi_series import url_de
 
-    u = url_de("1002000001", "TOKEN")
-    assert "/es/00/false/BISE/2.0/TOKEN" in u
+    u = url_de("737121", "TOKEN")
+    assert "/es/00/false/BIE-BISE/2.0/TOKEN" in u
     assert u.endswith("?type=json")
     assert "/false/" in u   # serie histórica completa, no solo el último dato
 
