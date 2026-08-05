@@ -23,6 +23,7 @@ from uuid import UUID
 
 from src.config import get_settings
 from src.config.banxico_series import SERIES_POR_ID
+from src.config.inegi_series import INDICADORES_POR_ID
 from src.contracts import (
     DeadLetter,
     FintechDictEntry,
@@ -158,6 +159,37 @@ def serie_vigente(series_id: str | None) -> bool:
     return series_id in SERIES_POR_ID
 
 
+def indicador_vigente(indicador_id: str | None) -> bool:
+    """¿Sigue configurado este indicador del INEGI? Mismo motivo que
+    `serie_vigente`: Bronze es inmutable y conserva lo que se retiró."""
+    return indicador_id in INDICADORES_POR_ID
+
+
+def normalizar_inegi(crudo: dict[str, Any]) -> dict[str, Any] | None:
+    """Observación del INEGI → contrato MacroIndicator.
+
+    Van a la MISMA tabla que las series de BANXICO en lugar de a una propia: son
+    el mismo tipo de dato —serie temporal macro— y compartir tabla les da gratis
+    el `yoy_change_pct` de `transform` y la inclusión en el `macro_context` de
+    cada correlación. No hay colisión de claves: los `series_id` de BANXICO
+    empiezan por letra (`SF`, `SP`) y los del INEGI son numéricos.
+
+    El periodo llega como `aaaa/mm` en las mensuales y `aaaa` en las anuales.
+    Se ancla al día 1 del periodo, igual que BANXICO hace con sus mensuales.
+    """
+    periodo = str(crudo.get("periodo") or "").strip()
+    texto_valor = str(crudo.get("valor") or "").replace(",", "").strip()
+    try:
+        partes = periodo.split("/")
+        anio = int(partes[0])
+        mes = int(partes[1]) if len(partes) > 1 else 1
+        fecha = date(anio, mes, 1)
+        valor = float(texto_valor)
+    except (ValueError, IndexError, AttributeError):
+        return None
+    return {"series_id": crudo.get("indicador_id"), "date": fecha, "value": valor}
+
+
 def normalizar_macro(crudo: dict[str, Any]) -> dict[str, Any] | None:
     """Serie del SIE → contrato MacroIndicator.
 
@@ -228,6 +260,25 @@ def procesar_lote(
             resultado = validar_precio(
                 {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
             )
+        elif source == "inegi":
+            if not indicador_vigente(crudo.get("indicador_id")):
+                omitidas += 1
+                continue
+            normalizado = normalizar_inegi(crudo)
+            resultado = (
+                validar_macro(normalizado, batch_uuid)
+                if normalizado
+                else DeadLetter(
+                    source=source,
+                    raw_payload=crudo,
+                    rejection_reason=RejectionReason.TYPE_MISMATCH,
+                    rejection_detail=(
+                        f"periodo o valor no interpretable: "
+                        f"{crudo.get('periodo')!r} / {crudo.get('valor')!r}"
+                    ),
+                    batch_uuid=batch_uuid,
+                )
+            )
         elif source == "banxico":
             if not serie_vigente(crudo.get("series_id")):
                 omitidas += 1
@@ -259,7 +310,7 @@ def procesar_lote(
             carga += db.cargar_noticias(cur, validos)
         elif source == "yahoo_finance":
             carga += db.cargar_precios(cur, validos)
-        elif source == "banxico":
+        elif source in ("banxico", "inegi"):
             carga += db.cargar_macro(cur, validos)
 
     db.cargar_dead_letters(cur, rechazos)

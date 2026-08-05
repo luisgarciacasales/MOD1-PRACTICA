@@ -30,10 +30,21 @@ validación y envenena la interpretación.
 
 ## Parámetros de la ruta, ya verificados
 
-  área    `00`     Nacional. Con `0700` la API devuelve 400 — fue la causa de
-                   los primeros fallos.
-  fuente  `BISE`   Es la que responde. `BIE` devolvió 400 en todos los IDs
-                   probados, pese a ser el banco de series económicas.
+  área    `00`         Nacional. Con `0700` la API devuelve 400 — fue la causa
+                       de los primeros fallos.
+  fuente  `BIE-BISE`   **Valor literal combinado.** Ni `BIE` ni `BISE` por
+                       separado funcionan para las series económicas: `BIE`
+                       devuelve 400 en todos los IDs y `BISE` solo responde a
+                       los censales. Toda la documentación del INEGI usa
+                       ejemplos con `BISE`, lo que llevó a descartar la
+                       combinación durante horas. La aportó el usuario desde la
+                       consola web, y con ella el IGAE responde a la primera.
+
+## Orden de las observaciones
+
+La API devuelve `OBSERVATIONS` **de más reciente a más antigua**. No se reordena
+en la ingesta —Bronze conserva lo recibido— pero quien las consuma no debe
+suponer orden ascendente.
 """
 
 from __future__ import annotations
@@ -45,7 +56,7 @@ Frecuencia = Literal["mensual", "trimestral", "anual"]
 # Ruta verificada de la API de Indicadores v2.0.
 BASE_URL = "https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/INDICATOR"
 AREA_NACIONAL = "00"
-FUENTE = "BISE"
+FUENTE = "BIE-BISE"
 
 
 class IndicadorInegi(NamedTuple):
@@ -68,7 +79,13 @@ class IndicadorInegi(NamedTuple):
 # Ejemplo de cómo se añade uno ya confirmado:
 #     IndicadorInegi("628194", "IGAE", "mensual"),
 # ---------------------------------------------------------------------------
-INDICADORES: tuple[IndicadorInegi, ...] = ()
+INDICADORES: tuple[IndicadorInegi, ...] = (
+    # Confirmado el 2026-08-05: 401 observaciones mensuales de 1993/01 a
+    # 2026/05, índice base 100 que pasa de 55,4 en 1993 a 108,6 en 2026.
+    # Es el proxy mensual del PIB — el PIB trimestral llega demasiado tarde para
+    # explicar el movimiento de una acción.
+    IndicadorInegi("737121", "IGAE — Indicador Global de Actividad Económica", "mensual"),
+)
 
 INDICADORES_POR_ID: dict[str, IndicadorInegi] = {i.id: i for i in INDICADORES}
 

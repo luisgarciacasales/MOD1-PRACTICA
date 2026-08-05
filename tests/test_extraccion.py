@@ -411,3 +411,47 @@ def test_el_catalogo_de_inegi_no_trae_ids_sin_confirmar():
         assert ind.nombre and not ind.nombre.endswith("?"), (
             f"{ind.id} tiene nombre sin confirmar: {ind.nombre!r}"
         )
+
+
+def test_normaliza_observacion_del_inegi():
+    """Periodo `aaaa/mm` anclado al día 1, igual que las mensuales de BANXICO."""
+    from src.pipeline.validate import normalizar_inegi
+
+    d = normalizar_inegi({"indicador_id": "737121", "periodo": "2026/05",
+                          "valor": "108.595751"})
+    assert d == {"series_id": "737121", "date": date(2026, 5, 1), "value": 108.595751}
+
+
+def test_periodo_anual_del_inegi_se_ancla_a_enero():
+    from src.pipeline.validate import normalizar_inegi
+
+    d = normalizar_inegi({"indicador_id": "X", "periodo": "2020", "valor": "126014024"})
+    assert d["date"] == date(2020, 1, 1)
+
+
+@pytest.mark.parametrize("periodo,valor", [("", "1"), ("2026/13", "1"), ("2026/05", ""),
+                                           ("2026/05", "N/D"), (None, None)])
+def test_observacion_del_inegi_malformada_se_rechaza(periodo, valor):
+    from src.pipeline.validate import normalizar_inegi
+
+    assert normalizar_inegi({"indicador_id": "737121", "periodo": periodo,
+                             "valor": valor}) is None
+
+
+def test_inegi_y_banxico_no_colisionan_de_series_id():
+    """Comparten tabla: los de BANXICO empiezan por letra, los del INEGI son
+    numéricos."""
+    from src.config.banxico_series import SERIES_POR_ID
+    from src.config.inegi_series import INDICADORES_POR_ID
+
+    assert not (set(SERIES_POR_ID) & set(INDICADORES_POR_ID))
+    assert all(s[0].isalpha() for s in SERIES_POR_ID)
+    assert all(i.isdigit() for i in INDICADORES_POR_ID)
+
+
+def test_indicador_retirado_se_omite():
+    from src.pipeline.validate import indicador_vigente
+
+    assert indicador_vigente("737121") is True
+    assert indicador_vigente("999999") is False
+    assert indicador_vigente(None) is False

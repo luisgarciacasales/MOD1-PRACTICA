@@ -15,6 +15,7 @@ import argparse
 import json
 
 from src.config.banxico_series import SERIES_POR_ID
+from src.config.inegi_series import INDICADORES_POR_ID
 from src.config.tickers import BENCHMARK
 from src.pipeline import db
 
@@ -144,7 +145,13 @@ def _contar(cur) -> tuple[int, int]:
 
 
 def ejecutar() -> int:
-    nombres = json.dumps({s.id: s.nombre for s in SERIES_POR_ID.values()})
+    # Los nombres de las dos fuentes macro comparten el mapeo porque comparten
+    # tabla. Sin esto, un indicador del INEGI se guardaría con su id numérico
+    # como nombre — el mismo síntoma que delató las series mal etiquetadas.
+    nombres = json.dumps(
+        {s.id: s.nombre for s in SERIES_POR_ID.values()}
+        | {i.id: i.nombre for i in INDICADORES_POR_ID.values()}
+    )
 
     with db.conectar() as conexion, conexion.cursor() as cur:
         cur.execute(_SQL_PRECIOS, {"benchmark": BENCHMARK})
