@@ -44,10 +44,29 @@ class SerieBanxico(NamedTuple):
 # rechazaba — solo estaba mal nombrado, que es la clase de error que sobrevive a
 # la validación y envenena la interpretación.
 SERIES: tuple[SerieBanxico, ...] = (
-    # --- Tasas ---
+    # --- Tasas de referencia y fondeo ---
     SerieBanxico("SF43783", "TIIE a 28 días", "diaria"),
+    SerieBanxico("SF43878", "TIIE a 91 días", "diaria"),
     SerieBanxico("SF61745", "Tasa objetivo de Banxico", "diaria"),
     SerieBanxico("SF43773", "Tasa de fondeo bancario (mediana ponderada)", "diaria"),
+    # --- CURVA DE RENDIMIENTOS (añadida el 2026-08-05) -----------------------
+    #
+    # Los títulos se confirmaron uno a uno con el endpoint de metadatos, no por
+    # deducción: los cuatro se llaman igual salvo el plazo final, y el endpoint
+    # de datos los devuelve truncados.
+    #
+    # Por qué esto es lo más valioso que faltaba: el negocio de un banco es
+    # tomar dinero corto y prestarlo largo, así que **la pendiente de la curva
+    # determina el margen financiero** — no es un proxy, es el mecanismo. Con
+    # solo el tramo corto (TIIE 28d, tasa objetivo) no se podía medir.
+    SerieBanxico("SF43936", "Cetes a 28 días", "diaria"),
+    SerieBanxico("SF43939", "Cetes a 91 días", "diaria"),
+    SerieBanxico("SF43942", "Cetes a 182 días", "diaria"),
+    SerieBanxico("SF43945", "Cetes a 364 días", "diaria"),
+    # Tramo largo. Se subasta de forma periódica y no semanal, así que su última
+    # observación va rezagada respecto a los Cetes (16/07/2026 frente al
+    # 06/08/2026). Aun así es el único punto largo disponible en el SIE.
+    SerieBanxico("SF43886", "Bono tasa fija 5 años", "diaria"),
     # --- Tipo de cambio ---
     SerieBanxico("SF43718", "Tipo de cambio FIX USD/MXN", "diaria"),
     # --- Mensuales ---
@@ -58,5 +77,15 @@ SERIES: tuple[SerieBanxico, ...] = (
 # Endpoint base del SIE. El token va en la cabecera 'Bmx-Token', no en la URL,
 # para que no acabe registrado en logs de proxies o en el caché de requests.
 SIE_BASE_URL = "https://www.banxico.org.mx/SieAPIRest/service/v1/series"
+
+# Endpoint de METADATOS: la misma ruta SIN `/datos` devuelve el título completo,
+# la periodicidad y las fechas de cobertura de cada serie:
+#
+#     GET {SIE_BASE_URL}/SF43936,SF43939   →  titulo, periodicidad, fechaInicio…
+#
+# Descubierto el 2026-08-05. Habría ahorrado la investigación de las cuatro
+# series mal etiquetadas del PRD: el endpoint de datos devuelve el título
+# TRUNCADO, y era eso lo que impedía distinguir «Cetes a 28 días» de «Cetes a
+# 364 días». **Úsalo siempre antes de dar nombre a una serie nueva.**
 
 SERIES_POR_ID: dict[str, SerieBanxico] = {s.id: s for s in SERIES}

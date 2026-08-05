@@ -227,3 +227,41 @@ def test_el_benchmark_si_se_ingiere():
     from src.sources.market import ingerir
 
     assert BENCHMARK in ingerir.__defaults__[0] if ingerir.__defaults__ else True
+
+
+# --- Curva de rendimientos y contexto macro acotado --------------------------
+
+
+def test_la_curva_esta_completa_y_con_nombres_confirmados():
+    """Los cuatro Cetes se llaman igual salvo el plazo, y el endpoint de datos
+    los devuelve truncados: los títulos se confirmaron con el de metadatos."""
+    from src.config.banxico_series import SERIES_POR_ID
+
+    esperados = {
+        "SF43936": "28 días", "SF43939": "91 días",
+        "SF43942": "182 días", "SF43945": "364 días",
+    }
+    for sid, plazo in esperados.items():
+        assert sid in SERIES_POR_ID, f"falta {sid}"
+        assert plazo in SERIES_POR_ID[sid].nombre, SERIES_POR_ID[sid].nombre
+        assert "Cetes" in SERIES_POR_ID[sid].nombre
+
+
+def test_el_contexto_macro_es_un_subconjunto_configurado():
+    """Todas las series se guardan; solo un subconjunto viaja incrustado en cada
+    correlación, para que el JSONB no engorde con ruido."""
+    from src.config.banxico_series import SERIES_POR_ID
+    from src.config.inegi_series import INDICADORES_POR_ID
+    from src.config.macro_contexto import SERIES_EN_CONTEXTO
+
+    todas = set(SERIES_POR_ID) | set(INDICADORES_POR_ID)
+    assert set(SERIES_EN_CONTEXTO) <= todas, "hay series en contexto que no existen"
+    assert len(SERIES_EN_CONTEXTO) < len(todas), "el contexto debe ser un subconjunto"
+
+
+def test_los_extremos_de_la_curva_estan_en_el_contexto():
+    """La pendiente se deriva de ellos, así que ambos deben viajar."""
+    from src.config.macro_contexto import CURVA_CORTO, CURVA_LARGO, SERIES_EN_CONTEXTO
+
+    assert CURVA_CORTO in SERIES_EN_CONTEXTO
+    assert CURVA_LARGO in SERIES_EN_CONTEXTO

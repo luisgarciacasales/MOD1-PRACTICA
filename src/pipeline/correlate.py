@@ -30,6 +30,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from src.config.emisoras import ALIAS_EMISORAS
+from src.config.macro_contexto import CURVA_CORTO, CURVA_LARGO, SERIES_EN_CONTEXTO
 from src.config.tickers import SECTOR_A_PROXY
 from src.pipeline import db
 from src.pipeline.calendario import desplazar_habiles, siguiente_dia_habil
@@ -129,18 +130,29 @@ def objetivos(fila: dict[str, Any], fintechs_conocidas: set[str]) -> list[dict[s
 
 
 def _macro_en(cur, fecha: date) -> dict[str, Any]:
-    """Tasas y tipo de cambio vigentes en `fecha`: el último dato publicado
-    hasta ese día, por serie. `DISTINCT ON` es la forma barata de hacerlo."""
+    """Contexto macro vigente en `fecha`: el último dato publicado hasta ese día.
+
+    Se materializa **solo un subconjunto** de las series (`SERIES_EN_CONTEXTO`).
+    El `macro_context` se escribe en cada fila de correlación, y con 17 series
+    macro cada una arrastraría un objeto de 17 entradas cuya mayoría es
+    irrelevante para la noticia concreta. Todas siguen guardadas y consultables
+    en `gold_macro_indicators`; lo que se acota es lo que viaja incrustado.
+
+    Se añade la **pendiente de la curva** como valor derivado, porque es lo que
+    de verdad se interpreta: la diferencia entre prestar a un año y fondearse a
+    un mes es, en primera aproximación, el margen del banco. Tenerla calculada
+    evita que cada consulta la reconstruya desde dos entradas del JSONB.
+    """
     cur.execute(
         """
         SELECT DISTINCT ON (series_id) series_id, series_name, value, date
         FROM gold_macro_indicators
-        WHERE date <= %s
+        WHERE date <= %s AND series_id = ANY(%s)
         ORDER BY series_id, date DESC
         """,
-        (fecha,),
+        (fecha, list(SERIES_EN_CONTEXTO)),
     )
-    return {
+    contexto: dict[str, Any] = {
         f["series_id"]: {
             "nombre": f["series_name"],
             "valor": f["value"],
@@ -148,6 +160,16 @@ def _macro_en(cur, fecha: date) -> dict[str, Any]:
         }
         for f in cur.fetchall()
     }
+
+    corto = contexto.get(CURVA_CORTO, {}).get("valor")
+    largo = contexto.get(CURVA_LARGO, {}).get("valor")
+    if corto is not None and largo is not None:
+        contexto["pendiente_curva_pb"] = {
+            "nombre": "Pendiente de la curva (Cetes 364d − 28d)",
+            "valor": round((largo - corto) * 100, 1),
+            "fecha": contexto[CURVA_LARGO]["fecha"],
+        }
+    return contexto
 
 
 def ejecutar(*, fecha: date | None) -> int:
