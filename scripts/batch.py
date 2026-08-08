@@ -16,8 +16,9 @@ Tres garantías:
   incompleto, y eso es peor que no tener el dato del día: el estado parcial no se
   distingue del completo al mirar las tablas.
 · **Deja rastro.** Cada corrida escribe su log completo y una línea en el
-  historial, para poder auditar qué pasó un día concreto sin depender de haber
-  estado mirando la consola.
+  historial con tiempos **y volúmenes**. Los volúmenes son lo que permite cruzar
+  «el tiempo creció» con «el corpus creció»: sin ellos, una serie de tiempos no
+  distingue una degradación de un aumento proporcional de trabajo.
 · **No corre antes del cierre.** La BMV cierra a las 15:00 CT y el PRD §4.4 fija
   la ingesta post-cierre. Ejecutarlo antes trae una vela incompleta del día en
   curso, que además contamina el cálculo de retornos.
@@ -55,6 +56,36 @@ def _ruta_logs() -> Path:
     ruta = Path(get_settings().bronze_path).parent / "logs"
     ruta.mkdir(parents=True, exist_ok=True)
     return ruta
+
+
+def _volumenes() -> str:
+    """Estado de las tablas tras la corrida, para la línea del historial.
+
+    Se consulta al final en vez de parsear la salida de cada etapa: el conteo de
+    las tablas es la verdad, y el texto de una etapa puede cambiar de formato.
+    """
+    from src.pipeline import db
+
+    consultas = (
+        ("news", "SELECT COUNT(*) FROM silver_news"),
+        ("gold", "SELECT COUNT(*) FROM gold_enriched_news"),
+        ("corr", "SELECT COUNT(*) FROM gold_news_market_corr"),
+        ("proxy", "SELECT COUNT(*) FROM gold_news_market_corr WHERE is_proxy"),
+        ("cuar", "SELECT COUNT(*) FROM silver_dead_letters"),
+        ("precios", "SELECT COUNT(*) FROM silver_market_prices"),
+        ("macro", "SELECT COUNT(*) FROM silver_macro_indicators"),
+    )
+    try:
+        with db.conectar() as conexion, conexion.cursor() as cur:
+            partes = []
+            for etiqueta, sql in consultas:
+                cur.execute(sql)
+                partes.append(f"{etiqueta}={cur.fetchone()[0]}")
+        return " ".join(partes)
+    except Exception as exc:  # noqa: BLE001
+        # Que falle el conteo no puede alterar el resultado del batch: es
+        # instrumentación, no parte del pipeline.
+        return f"volumenes=ERROR:{type(exc).__name__}"
 
 
 def _mercado_cerrado(ahora: datetime) -> bool:
@@ -153,8 +184,11 @@ def main(argv: list[str] | None = None) -> int:
     # abrir seis logs.
     with historial.open("a", encoding="utf-8") as h:
         estado = "OK" if fallo is None else f"FALLO:{fallo}"
-        detalle = " ".join(f"{n}={s:.0f}s" for n, _, s in resultados)
-        h.write(f"{ahora.isoformat(timespec='seconds')} {estado:<16} total={total:.0f}s {detalle}\n")
+        tiempos = " ".join(f"{n}={s:.0f}s" for n, _, s in resultados)
+        h.write(
+            f"{ahora.isoformat(timespec='seconds')} {estado:<16} "
+            f"total={total:.0f}s {tiempos} | {_volumenes()}\n"
+        )
 
     print(f"\n[batch] log completo: {log}")
     print(f"[batch] historial:    {historial}")
