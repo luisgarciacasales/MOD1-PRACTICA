@@ -189,3 +189,14 @@ def test_no_se_envia_historial_de_conversacion():
 
     fuente = inspect.getsource(ollama.ClienteOllama.chat_json)
     assert fuente.count('"role"') == 2, "se están enviando más de dos mensajes"
+
+
+def test_el_prompt_recibe_todo_el_contenido_que_silver_guarda():
+    """Deben coincidir: si el contrato acota `content` a 8192 y el prompt enviara
+    menos, estaríamos descartando texto ya validado sin que nada lo indique.
+    Fue el caso hasta el 2026-08-10 — se enviaba el 37% del cuerpo en la mitad
+    del corpus."""
+    from src.pipeline.validate import LIMITE_CONTENIDO
+    from src.prompts import LIMITE_CUERPO_PROMPT
+
+    assert LIMITE_CUERPO_PROMPT == LIMITE_CONTENIDO

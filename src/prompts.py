@@ -106,8 +106,28 @@ Titular: {titulo}
 Cuerpo: {cuerpo}
 """
 
-# El cuerpo se recorta antes de enviarlo: 3000 caracteres cubren de sobra la
-# entradilla y los primeros párrafos, que es donde está la información en el
-# periodismo, y mantienen el prompt dentro de la ventana de contexto de 4096
-# tokens que `lab-ollama` tiene configurada para este modelo.
-LIMITE_CUERPO_PROMPT = 3000
+# Cuerpo que viaja al prompt. Coincide con `LIMITE_CONTENIDO` de
+# `src/pipeline/validate.py`, es decir: se envía **todo** el contenido que Silver
+# guarda, sin descartar nada.
+#
+# Antes eran 3000 caracteres, un límite defensivo elegido cuando no sabíamos que
+# la ventana efectiva de Ollama era 4096 tokens. Al declarar `num_ctx=16384`
+# (política FinOps de CLAUDE.md) dejó de tener sentido: el prompt más grande del
+# corpus pasó a costar 2578 tokens, con holgura de sobra.
+#
+# El límite viejo descartaba de verdad: el 51,4% de las noticias tienen cuerpo
+# mayor de 3000 caracteres, con media de 5560, así que se enviaba en torno al
+# 37% del texto de la mitad del corpus.
+#
+# Medición controlada sobre 20 noticias, mismo corpus en ambas configuraciones
+# (2026-08-10):
+#
+#     coste     +0,44 s/noticia   (1,94 → 2,38)
+#     sectores        1 → 11      ← el hallazgo decisivo
+#     personas       38 → 90
+#     organizaciones 74 → 128
+#     M&A             0 → 1       · fintechs 1 → 2 · pasadas fallidas 1 → 0
+#
+# El salto en sectores es el que justifica el cambio: `sector_affected` es lo que
+# resuelve el proxy ticker, el mecanismo que el PRD considera diferencial.
+LIMITE_CUERPO_PROMPT = 8192
