@@ -14,6 +14,7 @@ Ollama sobre una RTX 5080. Cero llamadas a APIs comerciales de LLM.
 | **Requisitos de producto** | [`docs/PRD.md`](docs/PRD.md) |
 | **Arquitectura y decisiones** | [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) |
 | **Evidencia de ejecución** | [`docs/EVIDENCIA_E2E.md`](docs/EVIDENCIA_E2E.md) |
+| **Corrida diaria (paso a paso)** | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) |
 | **Operación en dos máquinas** | [`README_MAC.md`](README_MAC.md) |
 | **Arnés de agentes** | [`docs/HARNESS.md`](docs/HARNESS.md) · [`CLAUDE.md`](CLAUDE.md) |
 
