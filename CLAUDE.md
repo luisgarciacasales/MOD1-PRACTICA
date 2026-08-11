@@ -45,3 +45,13 @@ Claude descubre automáticamente los skills en `.claude/skills/`. Usa el que cor
 - Operaciones destructivas (`down -v`, `rm`, `DROP`, borrar datos) requieren confirmación explícita del usuario.
 - Si una acción viola una invariante, **detente y avísalo** en vez de continuar.
 - Reporta resultados con fidelidad (si un check falla, muéstralo con su salida).
+
+## FinOps y Optimización de Inferencia (Agentes y Costos)
+
+*   **Enrutamiento de Modelos (Model Routing):** 
+    *   **Inferencia Local (Costo Cero):** Todo el procesamiento masivo de texto, NLP, clasificación de tonos, chunking y análisis de discursos de la FED debe resolverse estrictamente de forma local usando Ollama (`OLLAMA_BASE_URL` en `mi-pc` con la RTX 5080). Está prohibido consumir tokens de API comerciales en tareas por lotes.
+    *   **Desarrollo de Código (Bajo Costo):** Utiliza modelos económicos (como DeepSeek a través de Opencode) para la generación rutinaria de scripts de Python, pruebas y refactorizaciones.
+    *   **Arquitectura / Debugging Crítico (Claude):** Reserva la capacidad de Claude Platform exclusivamente para diseño arquitectónico de alto nivel, resolución de bloqueos complejos de lógica o auditorías donde los modelos económicos hayan fallado.
+*   **Gestión de Contexto y Ventanas:** 
+    *   Para evitar truncamientos silenciosos (como el error histórico del 31% del corpus detectado en agosto de 2026), toda llamada a Ollama que procese discursos largos debe configurar explícitamente `num_ctx=16384`.
+    *   No envíes historiales de chat masivos ni logs innecesarios en las llamadas de API para optimizar el consumo de tokens y proteger el presupuesto mensual.

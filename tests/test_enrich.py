@@ -154,3 +154,38 @@ def test_sin_fintech_no_se_inventa_sector():
     e = nueva()
     aplicar_ma(e, {"fintechs": []}, FINTECHS, texto="tarjeta de crédito de Banorte")
     assert e.sector_affected is None
+
+
+# --- Política FinOps (CLAUDE.md) ---------------------------------------------
+
+
+def test_toda_llamada_declara_num_ctx():
+    """La política exige ventana de contexto explícita. Sin ella Ollama usa su
+    default —4096 en este servidor— y un prompt mayor se trunca EN SILENCIO:
+    sin error, sin señal en la respuesta y sin nada en el log.
+
+    Esta prueba existe para que la política no pueda regresar sin que falle algo.
+    """
+    import inspect
+
+    from src.pipeline import ollama
+
+    fuente = inspect.getsource(ollama.ClienteOllama.chat_json)
+    assert '"num_ctx"' in fuente, "chat_json ya no declara num_ctx"
+
+
+def test_el_num_ctx_por_defecto_es_el_de_la_politica():
+    from src.config import get_settings
+
+    assert get_settings().ollama_num_ctx == 16384
+
+
+def test_no_se_envia_historial_de_conversacion():
+    """La política prohíbe mandar historiales masivos. Cada llamada lleva
+    exactamente dos mensajes: sistema y usuario."""
+    import inspect
+
+    from src.pipeline import ollama
+
+    fuente = inspect.getsource(ollama.ClienteOllama.chat_json)
+    assert fuente.count('"role"') == 2, "se están enviando más de dos mensajes"

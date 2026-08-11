@@ -118,6 +118,9 @@ services:
       # Lotes de 8 llamadas concurrentes a Ollama (PRD §4.4 y §7): satura la GPU
       # sin desbordar VRAM. Subir a 16 solo tras verificar margen con nvidia-smi.
       NLP_BATCH_SIZE: ${NLP_BATCH_SIZE:-8}
+      # Política FinOps (CLAUDE.md): ventana de contexto explícita para evitar
+      # truncamientos silenciosos. El default de Ollama aquí es 4096.
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-16384}
 
       # --- Fuentes externas ---
       BANXICO_TOKEN: ${BANXICO_TOKEN:-}

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # Lotes de 8 llamadas concurrentes (PRD §2.1). Subir a 16 solo tras
     # comprobar margen de VRAM con `make gpu`.
     nlp_batch_size: int = Field(default=8, ge=1, le=32)
+    # Ventana de contexto de cada llamada a Ollama. Fijada por la política
+    # FinOps de CLAUDE.md para evitar truncamientos silenciosos. Se envía
+    # EXPLÍCITAMENTE: sin ella Ollama aplica su default, que en este servidor es
+    # 4096 — verificado el 2026-08-10 vía /api/ps.
+    ollama_num_ctx: int = Field(default=16384, ge=2048)
 
     # --- Embeddings ---
     embedding_model: str = "intfloat/multilingual-e5-large"

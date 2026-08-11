@@ -14,6 +14,10 @@ manejadas aquí para que no contaminen la lógica de negocio:
    `think: false`.
 2. **Envuelve el JSON en vallas de Markdown** pese a `format: "json"`, así que
    hay que despegarlas antes de parsear.
+
+Política FinOps (CLAUDE.md): toda llamada declara `num_ctx` de forma explícita.
+Es la única defensa contra el truncamiento silencioso del prompt — Ollama no
+avisa cuando la entrada excede la ventana, ni en la respuesta ni en el log.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ class ClienteOllama:
         settings = get_settings()
         self.base_url = settings.ollama_base_url.rstrip("/")
         self.concurrencia = concurrencia or settings.nlp_batch_size
+        self.num_ctx = settings.ollama_num_ctx
         self._semaforo = asyncio.Semaphore(self.concurrencia)
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._sesion: aiohttp.ClientSession | None = None
@@ -94,6 +99,15 @@ class ClienteOllama:
                 # deja de significar nada.
                 "temperature": 0,
                 "num_predict": num_predict,
+                # POLÍTICA FinOps (CLAUDE.md): la ventana de contexto se declara
+                # SIEMPRE de forma explícita. Sin este parámetro Ollama aplica
+                # su default, que en este servidor es 4096 — comprobado vía
+                # /api/ps el 2026-08-10. Un prompt que excediera esa ventana se
+                # truncaría **en silencio**, sin error y sin señal en la
+                # respuesta: exactamente el modo de fallo que la política cita.
+                #
+                # Coste medido: +500 MiB de VRAM (6 727 → 7 227 MiB de 16 303).
+                "num_ctx": self.num_ctx,
             },
         }
 
