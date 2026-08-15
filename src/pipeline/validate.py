@@ -28,6 +28,7 @@ from src.contracts import (
     DeadLetter,
     FintechDictEntry,
     RejectionReason,
+    validar_fundamental,
     validar_macro,
     validar_noticia,
     validar_precio,
@@ -277,6 +278,10 @@ def procesar_lote(
             resultado = validar_precio(
                 {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
             )
+        elif source == "yahoo_fundamentals":
+            resultado = validar_fundamental(
+                {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
+            )
         elif source == "inegi":
             if not indicador_vigente(crudo.get("indicador_id")):
                 omitidas += 1
@@ -327,6 +332,8 @@ def procesar_lote(
             carga += db.cargar_noticias(cur, validos)
         elif source == "yahoo_finance":
             carga += db.cargar_precios(cur, validos)
+        elif source == "yahoo_fundamentals":
+            carga += db.cargar_fundamentales(cur, validos)
         elif source in ("banxico", "inegi"):
             carga += db.cargar_macro(cur, validos)
 

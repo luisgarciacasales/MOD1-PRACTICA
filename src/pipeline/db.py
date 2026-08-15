@@ -20,6 +20,7 @@ from src.config import get_settings
 from src.contracts import (
     DeadLetter,
     FintechDictEntry,
+    Fundamental,
     MacroIndicator,
     MarketPrice,
     SilverNews,
@@ -90,6 +91,29 @@ ON CONFLICT (series_id, date) DO UPDATE SET value = EXCLUDED.value
 RETURNING (xmax = 0)
 """
 
+_SQL_FUNDAMENTALES = """
+INSERT INTO silver_fundamentals (
+    ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
+    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
+    ingested_at, raw_batch_uuid
+) VALUES (
+    %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
+    %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
+    %(capital_contable)s, %(flujo_operativo)s, %(flujo_libre)s,
+    %(ingested_at)s, %(raw_batch_uuid)s
+)
+ON CONFLICT (ticker, period_end) DO UPDATE SET
+    ingresos_totales    = EXCLUDED.ingresos_totales,
+    utilidad_neta       = EXCLUDED.utilidad_neta,
+    utilidad_por_accion = EXCLUDED.utilidad_por_accion,
+    activo_total        = EXCLUDED.activo_total,
+    pasivo_total        = EXCLUDED.pasivo_total,
+    capital_contable    = EXCLUDED.capital_contable,
+    flujo_operativo     = EXCLUDED.flujo_operativo,
+    flujo_libre         = EXCLUDED.flujo_libre
+RETURNING (xmax = 0)
+"""
+
 _SQL_FINTECH = """
 INSERT INTO silver_fintech_dict (
     legal_name, commercial_name, ticker, sector, country, updated_at
@@ -132,6 +156,10 @@ def cargar_precios(cur: psycopg.Cursor, filas: list[MarketPrice]) -> Carga:
 
 def cargar_macro(cur: psycopg.Cursor, filas: list[MacroIndicator]) -> Carga:
     return _cargar(cur, _SQL_MACRO, [_dump(f) for f in filas])
+
+
+def cargar_fundamentales(cur: psycopg.Cursor, filas: list[Fundamental]) -> Carga:
+    return _cargar(cur, _SQL_FUNDAMENTALES, [_dump(f) for f in filas])
 
 
 def cargar_fintech(cur: psycopg.Cursor, filas: list[FintechDictEntry]) -> Carga:

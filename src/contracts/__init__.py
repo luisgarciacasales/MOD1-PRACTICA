@@ -14,6 +14,7 @@ nunca descarta en silencio. El llamador decide a qué tabla escribe.
 """
 
 from src.contracts.fintech import FintechDictEntry
+from src.contracts.fundamentals import Fundamental, validar_fundamental
 from src.contracts.market import (
     MacroIndicator,
     MarketPrice,
@@ -31,12 +32,14 @@ from src.contracts.rejections import DeadLetter, RejectionReason
 __all__ = [
     "DeadLetter",
     "FintechDictEntry",
+    "Fundamental",
     "MacroIndicator",
     "MarketPrice",
     "RejectionReason",
     "SilverNews",
     "calcular_guid",
     "es_macro",
+    "validar_fundamental",
     "validar_macro",
     "validar_noticia",
     "validar_precio",

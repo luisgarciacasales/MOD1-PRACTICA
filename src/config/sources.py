@@ -18,6 +18,7 @@ SourceId = Literal[
     "bloomberg",
     "finnovista",
     "yahoo_finance",
+    "yahoo_fundamentals",
     "banxico",
     "inegi",
 ]
@@ -91,6 +92,11 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente("finnovista", "Finnovista Radar Fintech México", "diccionario", None),
     # 3.4 y 3.5 — datos estructurados; contrato de tipos y rangos, no semántico.
     Fuente("yahoo_finance", "Yahoo Finance (yfinance)", "mercado", None),
+    # AMPLIACIÓN 2026-08-14 — reportes trimestrales de las emisoras propias
+    # (resultados, balance, flujo de efectivo), no de fintechs vía Finnovista.
+    # Se empezó por las cifras estructuradas (mismo yfinance, sin scraper
+    # nuevo); el reporte narrativo de cada empresa queda pendiente de evaluar.
+    Fuente("yahoo_fundamentals", "Yahoo Finance — estados financieros trimestrales", "mercado", None),
     Fuente("banxico", "BANXICO SIE", "mercado", None),
     # AMPLIACIÓN 2026-08-04 — actividad económica real: IGAE, desempleo y
     # confianza del consumidor, que BANXICO no publica y que anticipan la

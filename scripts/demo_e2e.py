@@ -51,9 +51,11 @@ CLAVES_NATURALES = {
     "silver_news": "guid",
     "silver_market_prices": "ticker, date",
     "silver_macro_indicators": "series_id, date",
+    "silver_fundamentals": "ticker, period_end",
     "gold_enriched_news": "guid",
     "gold_market_prices": "ticker, date",
     "gold_macro_indicators": "series_id, date",
+    "gold_fundamentals": "ticker, period_end",
     "gold_news_market_corr": "news_guid, ticker, price_date",
 }
 

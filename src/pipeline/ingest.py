@@ -26,7 +26,7 @@ from pathlib import Path
 
 from src.config import get_settings
 from src.pipeline.bronze import escribir_lote
-from src.sources import banxico, bmv, finnovista, google_news, inegi, market, rss
+from src.sources import banxico, bmv, finnovista, fundamentales, google_news, inegi, market, rss
 from src.sources.base import ResultadoFuente
 
 # Orden de ejecución: primero lo barato y fiable, al final lo lento (yfinance
@@ -44,6 +44,9 @@ ADAPTADORES: dict[str, Callable[[], ResultadoFuente]] = {
     "banxico": banxico.ingerir,
     "inegi": inegi.ingerir,
     "yahoo_finance": market.ingerir,
+    # Al final: son 14 tickers × 3 estados financieros, tan lento como
+    # yahoo_finance y por el mismo motivo (rate limit de yfinance).
+    "yahoo_fundamentals": fundamentales.ingerir,
 }
 
 

@@ -14,12 +14,14 @@ import pytest
 from src.contracts import (
     DeadLetter,
     FintechDictEntry,
+    Fundamental,
     MacroIndicator,
     MarketPrice,
     RejectionReason,
     SilverNews,
     calcular_guid,
     es_macro,
+    validar_fundamental,
     validar_macro,
     validar_noticia,
     validar_precio,
@@ -327,3 +329,64 @@ def test_fed_no_coincide_dentro_de_federacion():
 def test_pib_no_coincide_dentro_de_otra_palabra():
     assert es_macro("bloomberg", "el equipo pibe jugó bien") is False
     assert es_macro("bloomberg", "el PIB creció 2%") is True
+
+
+# --- Fundamental -------------------------------------------------------------
+
+
+def test_fundamental_valido_con_un_solo_campo_pasa():
+    """yfinance trae huecos NaN dispersos entre campos y trimestres — el
+    contrato no puede exigirlos todos (ver src/contracts/fundamentals.py)."""
+    r = validar_fundamental(
+        {"ticker": "gfnorteo.mx", "period_end": "2026-06-30", "utilidad_neta": 1.5e10},
+        BATCH,
+    )
+    assert isinstance(r, Fundamental)
+    assert r.ticker == "GFNORTEO.MX"  # normalizado, como el ticker de MarketPrice
+    assert r.ingresos_totales is None
+
+
+def test_fundamental_sin_ningun_campo_se_rechaza():
+    r = validar_fundamental({"ticker": "GFNORTEO.MX", "period_end": "2026-06-30"}, BATCH)
+    assert isinstance(r, DeadLetter)
+    assert r.rejection_reason is RejectionReason.MISSING_FIELD
+
+
+def test_fundamental_utilidad_neta_negativa_es_valida():
+    """A diferencia de MarketPrice, aquí una pérdida (utilidad negativa) es un
+    dato legítimo, no un motivo de rechazo — igual que MacroIndicator.value."""
+    r = validar_fundamental(
+        {"ticker": "GFNORTEO.MX", "period_end": "2025-06-30", "utilidad_neta": -6.7e8},
+        BATCH,
+    )
+    assert isinstance(r, Fundamental)
+    assert r.utilidad_neta == -6.7e8
+
+
+def test_fundamental_activo_total_no_positivo_se_rechaza():
+    r = validar_fundamental(
+        {"ticker": "GFNORTEO.MX", "period_end": "2026-06-30", "activo_total": 0.0},
+        BATCH,
+    )
+    assert isinstance(r, DeadLetter)
+    assert r.rejection_reason is RejectionReason.OUT_OF_RANGE
+
+
+def test_fundamental_pasivo_negativo_se_rechaza():
+    r = validar_fundamental(
+        {"ticker": "GFNORTEO.MX", "period_end": "2026-06-30", "pasivo_total": -1.0},
+        BATCH,
+    )
+    assert isinstance(r, DeadLetter)
+    assert r.rejection_reason is RejectionReason.OUT_OF_RANGE
+
+
+def test_dead_letter_de_fundamental_es_serializable_a_jsonb():
+    from datetime import date as _date
+
+    r = validar_fundamental(
+        {"ticker": "GFNORTEO.MX", "period_end": _date(2026, 6, 30), "activo_total": 0.0},
+        BATCH,
+    )
+    assert isinstance(r, DeadLetter)
+    assert r.raw_payload["period_end"] == "2026-06-30"  # ISO, no objeto date
