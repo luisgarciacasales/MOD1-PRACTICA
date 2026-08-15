@@ -26,7 +26,17 @@ from pathlib import Path
 
 from src.config import get_settings
 from src.pipeline.bronze import escribir_lote
-from src.sources import banxico, bmv, finnovista, fundamentales, google_news, inegi, market, rss
+from src.sources import (
+    banxico,
+    bmv,
+    finnovista,
+    fundamentales,
+    google_news,
+    inegi,
+    market,
+    reportes_ir,
+    rss,
+)
 from src.sources.base import ResultadoFuente
 
 # Orden de ejecución: primero lo barato y fiable, al final lo lento (yfinance
@@ -41,6 +51,10 @@ ADAPTADORES: dict[str, Callable[[], ResultadoFuente]] = {
     # Antes de yahoo_finance porque son 14 peticiones HTTP ligeras; yfinance es
     # lo más lento del batch y conviene dejarlo al final.
     "google_news": google_news.ingerir,
+    # Piloto de 3 emisoras (15-ago-2026): raspa listado + descarga PDF, más
+    # lento que un RSS pero acotado — va antes de yfinance por lo mismo que
+    # google_news.
+    "reportes_ir": reportes_ir.ingerir,
     "banxico": banxico.ingerir,
     "inegi": inegi.ingerir,
     "yahoo_finance": market.ingerir,

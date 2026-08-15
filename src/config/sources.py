@@ -12,6 +12,7 @@ Categoria = Literal["noticias", "mercado", "diccionario"]
 # Coincide con el enum `source` del esquema Bronze (PRD §5.1) y de silver_news.
 SourceId = Literal[
     "google_news",
+    "reportes_ir",
     "bmv_eventos",
     "financiero",
     "economista",
@@ -85,6 +86,16 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente(
         "google_news",
         "Google News — consultas dirigidas",
+        "noticias",
+        None,
+    ),
+    # AMPLIACIÓN 2026-08-15 — el reporte narrativo trimestral de cada emisora
+    # (comunicado de resultados / discusión de la administración), no las
+    # cifras estructuradas de `yahoo_fundamentals`. Piloto de 3 emisoras; ver
+    # src/config/reportes_ir.py para el porqué de cada una.
+    Fuente(
+        "reportes_ir",
+        "Reportes narrativos trimestrales (piloto)",
         "noticias",
         None,
     ),

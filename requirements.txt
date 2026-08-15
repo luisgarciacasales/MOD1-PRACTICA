@@ -17,6 +17,12 @@ feedparser~=6.0        # 3.2 — RSS de El Financiero / El Economista / Bloomber
 beautifulsoup4~=4.12   # 3.1 — scraping de Eventos Relevantes BMV
 lxml~=5.3              # parser rápido para bs4 y feedparser
 requests~=2.32         # 3.5 — API REST de BANXICO/SIE
+# 15-ago-2026 — el reporte narrativo trimestral de cada emisora solo existe en
+# PDF (verificado contra Banorte, Regional y BMV: ninguna lo publica en HTML).
+# pypdf, no pdfplumber/PyMuPDF: los PDF de resultados trimestrales son texto
+# nativo, no escaneos, así que no hace falta OCR ni layout avanzado — pypdf
+# alcanza y es la dependencia más ligera de las tres.
+pypdf~=5.1
 
 # --- Caché de APIs externas (PRD §6.7) ---
 # Backend SQLite. Evita agotar el rate limit de yfinance durante el desarrollo

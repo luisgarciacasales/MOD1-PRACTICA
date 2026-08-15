@@ -40,8 +40,11 @@ from src.texto import normalizar, terminos_presentes
 # `google_news` agrupa las 14 consultas dirigidas en un único source: una fuente
 # por consulta habría inflado este enum y el CHECK de la tabla con valores que
 # cambian cada vez que se ajusta el catálogo (ver src/config/google_news.py).
+# `reportes_ir` (15-ago-2026): el comunicado narrativo trimestral de cada
+# emisora piloto, tratado como noticia porque es el mismo texto no
+# estructurado — mismo contrato, mismo enrich.
 SourceNoticias = Literal[
-    "bmv_eventos", "financiero", "economista", "bloomberg", "google_news"
+    "bmv_eventos", "financiero", "economista", "bloomberg", "google_news", "reportes_ir"
 ]
 
 _URL_ADAPTER = TypeAdapter(HttpUrl)

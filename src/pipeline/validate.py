@@ -37,7 +37,9 @@ from src.pipeline import db
 from src.pipeline.bronze import leer_lote, listar_lotes
 from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_tickers
 
-FUENTES_NOTICIAS = {"bmv_eventos", "financiero", "economista", "bloomberg", "google_news"}
+FUENTES_NOTICIAS = {
+    "bmv_eventos", "financiero", "economista", "bloomberg", "google_news", "reportes_ir",
+}
 
 # Límites del contrato (PRD §5.2). Se aplican aquí, antes de validar, porque
 # superarlos no significa que el dato sea inválido sino que trae markup.
