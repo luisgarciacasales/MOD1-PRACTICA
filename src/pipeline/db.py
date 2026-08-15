@@ -106,11 +106,19 @@ RETURNING (xmax = 0)
 
 _SQL_DEAD_LETTER = """
 INSERT INTO silver_dead_letters (
-    guid, source, raw_payload, rejection_reason, rejection_detail, rejected_at, batch_uuid
+    guid, source, raw_payload, rejection_reason, rejection_detail,
+    rejected_at, first_rejected_at, batch_uuid
 ) VALUES (
     %(guid)s, %(source)s, %(raw_payload)s, %(rejection_reason)s,
-    %(rejection_detail)s, %(rejected_at)s, %(batch_uuid)s
+    %(rejection_detail)s, %(rejected_at)s, %(rejected_at)s, %(batch_uuid)s
 )
+ON CONFLICT (source, guid) WHERE guid IS NOT NULL DO UPDATE SET
+    raw_payload      = EXCLUDED.raw_payload,
+    rejection_reason = EXCLUDED.rejection_reason,
+    rejection_detail = EXCLUDED.rejection_detail,
+    rejected_at       = EXCLUDED.rejected_at,
+    times_rejected     = silver_dead_letters.times_rejected + 1,
+    batch_uuid         = EXCLUDED.batch_uuid
 """
 
 
@@ -131,9 +139,15 @@ def cargar_fintech(cur: psycopg.Cursor, filas: list[FintechDictEntry]) -> Carga:
 
 
 def cargar_dead_letters(cur: psycopg.Cursor, filas: list[DeadLetter]) -> int:
-    """La cuarentena NO deduplica: cada rechazo es un evento con su propio
-    momento y su propio motivo. Saber que el mismo registro se rechazó tres
-    días seguidos es justo la señal que hace útil la tabla."""
+    """La cuarentena deduplica por `(source, guid)` (diagnóstico 2026-08-14):
+    algunas fuentes reenvían casi el mismo lote en cada ingesta, y sin UPSERT
+    cada rechazo repetido generaba una fila nueva — hasta 52x el mismo GUID en
+    `bloomberg`, sin aportar información.
+
+    La señal que la cuarentena quería capturar —que algo lleva días
+    rechazándose— se conserva, pero como contador (`times_rejected`) en vez de
+    como filas repetidas. Un registro sin `guid` no tiene clave natural para
+    agregar y sigue insertándose como fila nueva cada vez."""
     from psycopg.types.json import Jsonb
 
     for fila in filas:

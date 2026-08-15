@@ -61,6 +61,34 @@ endif
 
 COMPOSE := cd $(DIR) && docker compose
 
+# Carrera de arranque de la GPU (diagnosticada 07-ago-2026, opción C elegida
+# 14-ago-2026): tras un reinicio del host, los contenedores con GPU pueden
+# arrancar antes que el driver de NVIDIA y morir con "nvml error: driver not
+# loaded". La política de reinicio de Docker no los recupera porque el fallo
+# ocurre antes de que el contenedor llegue a crearse (RestartCount=0). Es
+# determinista y conocido: no hace falta observarlo más, hace falta
+# reintentarlo. `lab-ollama` es compartido (ADR-5) — esto solo lo arranca si
+# está caído, nunca toca su configuración.
+ifeq ($(MODO),local)
+  ASEGURA_OLLAMA := :
+else
+  ASEGURA_OLLAMA := if ! curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then \
+	echo "[batch] lab-ollama no responde -- probable carrera de arranque tras reinicio del host, arrancandolo..."; \
+	docker start lab-ollama >/dev/null 2>&1; \
+	ok=0; \
+	for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do \
+		curl -sf http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && { ok=1; break; }; \
+		sleep 2; \
+	done; \
+	if [ "$$ok" = "1" ]; then \
+		echo "[batch] lab-ollama recuperado"; \
+	else \
+		echo "[batch] ERROR: lab-ollama sigue sin responder tras el intento de arranque"; \
+		exit 1; \
+	fi; \
+  fi
+endif
+
 # Guardia para targets que no tienen sentido en el servidor de despliegue.
 # OJO: $(call) separa argumentos por comas, así que el mensaje que se le pase
 # NO debe contener ninguna o quedará truncado en la primera.
@@ -159,7 +187,7 @@ tunnel: ## Túnel SSH a Postgres del host remoto (solo MODO=remoto)
 ## --- Pipeline ---------------------------------------------------------------
 
 batch: ## Corrida diaria completa: las 6 etapas en orden, con log (uso: make batch ARGS=--ignorar-horario)
-	$(RUN) '$(COMPOSE) exec -T app python scripts/batch.py $(ARGS)'
+	$(RUN) '$(ASEGURA_OLLAMA); $(COMPOSE) exec -T app python scripts/batch.py $(ARGS)'
 
 historial: ## Una línea por corrida del batch, para ver la estabilidad entre días
 	$(RUN) 'cd $(DIR) && tail -20 data/logs/historial.log 2>/dev/null || echo "(sin corridas registradas)"'

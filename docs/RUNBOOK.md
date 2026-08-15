@@ -138,18 +138,30 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && tail -40 "$(ls -t data/logs/
 
 ## Problemas conocidos
 
-### `lab-ollama` caído tras reiniciar el servidor
+### `lab-ollama` caído tras reiniciar el servidor — ya no requiere intervención manual
 
-**Síntoma:** el batch aborta en `enrich` con
-`Cannot connect to host host.docker.internal:11434`, y `mod1-app` aparece
+**Síntoma (antes del 14-ago-2026):** el batch abortaba en `enrich` con
+`Cannot connect to host host.docker.internal:11434`, y `mod1-app` aparecía
 *unhealthy*.
 
-**Causa:** los contenedores con GPU arrancan antes de que el driver de NVIDIA
-esté cargado y mueren con `nvml error: driver not loaded`. La política de
-reinicio de Docker no los recupera, porque el fallo ocurre antes de que el
+**Causa:** los contenedores con GPU pueden arrancar antes de que el driver de
+NVIDIA esté cargado y mueren con `nvml error: driver not loaded`. La política
+de reinicio de Docker no los recupera, porque el fallo ocurre antes de que el
 contenedor llegue a crearse.
 
-**Solución:**
+**Solución (opción C, adoptada tras el diagnóstico de la semana 10–14 ago):**
+`make batch` ahora comprueba `lab-ollama` **antes** de cada corrida y, si no
+responde, lo arranca y espera hasta 30s a que esté sano — sin que tengas que
+hacer nada. Verás esto en la salida si ocurrió:
+
+```
+[batch] lab-ollama no responde -- probable carrera de arranque tras reinicio del host, arrancandolo...
+[batch] lab-ollama recuperado
+```
+
+Si el arranque automático fallara (poco probable — el driver tarda segundos,
+no minutos, en cargar), el mismo bloque lo dice explícitamente y aborta antes
+de tocar `enrich`; en ese caso, el diagnóstico manual sigue siendo:
 
 ```bash
 ssh mi-pc 'docker start lab-ollama'
@@ -157,9 +169,9 @@ ssh mi-pc 'curl -s http://127.0.0.1:11434/api/tags | head -c 120'   # debe respo
 make batch                                                          # reintentar
 ```
 
-`lab-ollama` es un servicio **compartido** con otros proyectos del laboratorio.
-Arrancarlo restaura su estado previsto; no cambies su configuración sin decidirlo
-antes.
+`lab-ollama` es un servicio **compartido** con otros proyectos del laboratorio
+(ADR-5). Este mecanismo solo lo arranca si está caído — nunca toca su
+configuración ni su compose.
 
 ---
 
