@@ -41,11 +41,22 @@ from src.sources.base import ResultadoFuente
 TIMEOUT_LISTADO = 20
 TIMEOUT_PDF = 40
 PAUSA_ENTRE_EMISORAS = 1.0
-PAGINAS_A_EXTRAER = 3
+
+# Generoso a propósito: el resumen ejecutivo no siempre está en la página 1.
+# Verificado en las tres muestras piloto: BOLSAA arranca en la página 2,
+# Banorte en la 3-4 y Regional en la 4 — antes hay portada, agenda de la
+# llamada con analistas e índice. 12 páginas cubre el margen con holgura sin
+# acercarse a las 41-85 páginas del documento completo.
+PAGINAS_A_EXTRAER = 12
 
 _CABECERAS = {
     "User-Agent": "Mozilla/5.0 (compatible; MOD1-PRACTICA/1.0; +academic research)"
 }
+
+# Frases que marcan el arranque real del resumen ejecutivo (o su equivalente
+# en cada emisora). Se buscan combinadas porque ninguna es universal: Banorte
+# y Regional usan "Resumen Ejecutivo", BOLSAA usa "Hitos Clave".
+_MARCADORES_RESUMEN = ("resumen ejecutivo", "hitos clave del periodo")
 
 # Filenames que casan con el patrón de trimestre pero NO son el comunicado
 # narrativo: anexos regulatorios, reporte de riesgos, certificaciones,
@@ -73,17 +84,23 @@ def ingerir() -> ResultadoFuente:
 
     for i, emisora in enumerate(EMISORAS_IR):
         try:
-            pdf_url = _localizar_pdf(emisora)
+            pdf_url, fecha_del_listado = _localizar_pdf(emisora)
             if pdf_url is None:
                 fallidos.append(f"{emisora.ticker}: sin PDF localizable en el listado")
                 continue
 
-            texto = _extraer_narrativo(pdf_url)
-            if not texto:
+            texto_completo = _extraer_texto_pdf(pdf_url)
+            if not texto_completo:
                 fallidos.append(f"{emisora.ticker}: PDF sin texto extraíble")
                 continue
 
-            fecha = _fecha_de_texto(texto)
+            # Prioridad: la fecha del propio listado (cuando el sitio la da,
+            # como el portal de la BMV) es más confiable que buscarla en el
+            # texto. El "Comentarios de la Administración" de Regional no
+            # trae un dateline claro cerca del resumen — solo fechas de notas
+            # contables sueltas ("Al 30 de junio de 2025 y 2026...") que un
+            # regex no puede distinguir de la fecha real de publicación.
+            fecha = fecha_del_listado or _fecha_de_texto(texto_completo)
             if fecha is None:
                 # Sin fecha confiable no se inventa una: mejor perder este
                 # trimestre que contaminar published_at, que es parte de la
@@ -93,7 +110,7 @@ def ingerir() -> ResultadoFuente:
 
             registros.append({
                 "title": f"Reporte trimestral — {emisora.nombre}",
-                "summary": texto,
+                "summary": _desde_el_resumen(texto_completo),
                 "link": pdf_url,
                 "published": fecha.isoformat(),
                 "source": "reportes_ir",
@@ -121,15 +138,17 @@ def ingerir() -> ResultadoFuente:
 # --- Localizadores del PDF, uno por sitio -----------------------------------
 
 
-def _localizar_pdf(emisora: EmisoraIR) -> str | None:
+def _localizar_pdf(emisora: EmisoraIR) -> tuple[str | None, date | None]:
+    """Devuelve `(url, fecha)`. `fecha` es None cuando el sitio no la da y
+    hay que buscarla en el propio texto del PDF (`_fecha_de_texto`)."""
     resp = requests.get(emisora.listado_url, headers=_CABECERAS, timeout=TIMEOUT_LISTADO)
     resp.raise_for_status()
     sopa = BeautifulSoup(resp.text, "lxml")
 
     if emisora.ticker == "GFNORTEO.MX":
-        return _localizar_banorte(sopa, emisora.listado_url)
+        return _localizar_banorte(sopa, emisora.listado_url), None
     if emisora.ticker == "BOLSAA.MX":
-        return _localizar_bolsaa(sopa, emisora.listado_url)
+        return _localizar_bolsaa(sopa, emisora.listado_url), None
     # Regional y cualquier otra emisora futura vía el portal de la BMV.
     return _localizar_bmv_informacionfinanciera(sopa, emisora.listado_url)
 
@@ -174,27 +193,43 @@ def _localizar_bolsaa(sopa: BeautifulSoup, base_url: str) -> str | None:
     return mejor[1].replace(" ", "%20")
 
 
-def _localizar_bmv_informacionfinanciera(sopa: BeautifulSoup, base_url: str) -> str | None:
+def _localizar_bmv_informacionfinanciera(
+    sopa: BeautifulSoup, base_url: str
+) -> tuple[str | None, date | None]:
     """Portal centralizado de divulgación de la BMV. El comunicado narrativo
     es el PDF cuyo nombre empieza con `sominfin_`; el que empieza con
     `infinsom_` en la misma carpeta son los estados financieros tabulados
     (ya cubiertos por `yahoo_fundamentals`). El ID numérico crece con cada
-    presentación, así que el mayor es el más reciente."""
-    mejor: tuple[int, str] | None = None
+    presentación, así que el mayor es el más reciente.
+
+    El nombre trae además el periodo de presentación (`sominfin_ID_AAAA-MM_N`)
+    — más confiable que buscar una fecha dentro del PDF: el "Comentarios de
+    la Administración" de Regional no trae un dateline claro, solo fechas de
+    notas contables sueltas que un regex no puede distinguir de la real. Se
+    usa el día 1 del mes como aproximación explícita, no exacta.
+    """
+    mejor: tuple[int, str, date | None] | None = None
     for a in sopa.find_all("a", href=True):
-        m = re.search(r"/docs-pub/infinsom/sominfin_(\d+)_[^/\"]+\.pdf$", a["href"])
+        m = re.search(r"/docs-pub/infinsom/sominfin_(\d+)_(\d{4})-(\d{2})_[^/\"]+\.pdf$", a["href"])
         if not m:
             continue
-        id_num = int(m.group(1))
+        id_num, anio, mes = m.groups()
+        id_num = int(id_num)
+        try:
+            fecha = date(int(anio), int(mes), 1)
+        except ValueError:
+            fecha = None
         if mejor is None or id_num > mejor[0]:
-            mejor = (id_num, urljoin(base_url, a["href"]))
-    return mejor[1] if mejor else None
+            mejor = (id_num, urljoin(base_url, a["href"]), fecha)
+    if mejor is None:
+        return None, None
+    return mejor[1], mejor[2]
 
 
 # --- Extracción del PDF -------------------------------------------------
 
 
-def _extraer_narrativo(pdf_url: str) -> str:
+def _extraer_texto_pdf(pdf_url: str) -> str:
     from pypdf import PdfReader
 
     resp = requests.get(pdf_url, headers=_CABECERAS, timeout=TIMEOUT_PDF)
@@ -204,12 +239,48 @@ def _extraer_narrativo(pdf_url: str) -> str:
     return "\n".join(p.extract_text() or "" for p in paginas).strip()
 
 
+# `pypdf` a veces separa palabras contiguas con espacios dobles o triples por
+# artefactos de kerning del PDF ("RESUMEN  EJECUTIVO", visto en Regional pero
+# no en Banorte ni BOLSAA — depende del generador de cada emisora). `\s+`
+# entre palabras tolera eso; una subcadena exacta no lo habría encontrado
+# nunca y habría devuelto el documento completo sin recortar.
+_PATRONES_RESUMEN = tuple(
+    re.compile(r"\s+".join(re.escape(palabra) for palabra in marcador.split()), re.IGNORECASE)
+    for marcador in _MARCADORES_RESUMEN
+)
+
+
+def _desde_el_resumen(texto: str) -> str:
+    """Recorta la portada y el índice, que no aportan señal para NER ni
+    sentimiento.
+
+    La PRIMERA aparición del marcador suele ser la entrada del índice (le
+    sigue un número de página, no prosa); la SEGUNDA es donde arranca la
+    sección de verdad. Con una sola aparición se usa esa — más vale texto con
+    algo de portada que perder el reporte entero por un índice ausente.
+    """
+    posiciones = sorted(
+        m.start() for patron in _PATRONES_RESUMEN for m in patron.finditer(texto)
+    )
+    if not posiciones:
+        return texto
+    ancla = posiciones[1] if len(posiciones) > 1 else posiciones[0]
+    return texto[ancla:]
+
+
 def _fecha_de_texto(texto: str) -> date | None:
     """Primera fecha en español que aparece en el texto ('21 de julio de
     2026'). Puede ser la fecha de publicación (dateline) o el cierre del
     periodo que reporta, según cómo redacte cada emisora — es una
-    aproximación aceptada, documentada aquí en vez de asumida en silencio."""
-    m = _PATRON_FECHA_ES.search(texto)
+    aproximación aceptada, documentada aquí en vez de asumida en silencio.
+
+    `pypdf` a veces separa dígitos contiguos con un espacio por artefactos de
+    kerning del PDF ('2 1' en vez de '21'; visto en el propio BOLSAA) — se
+    compacta antes de buscar, solo para esta búsqueda, sin tocar el texto que
+    se guarda.
+    """
+    compactado = re.sub(r"(?<=\d)\s(?=\d)", "", texto)
+    m = _PATRON_FECHA_ES.search(compactado)
     if not m:
         return None
     dia, mes_texto, anio = m.groups()

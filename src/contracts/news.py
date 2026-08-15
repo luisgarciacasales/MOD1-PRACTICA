@@ -198,7 +198,7 @@ def validar_noticia(
         )
 
     # --- Precondiciones que impiden siquiera calcular la clave natural --------
-    if source not in {"bmv_eventos", "financiero", "economista", "bloomberg", "google_news"}:
+    if source not in set(SourceNoticias.__args__):
         return rechazo(RejectionReason.UNKNOWN_SOURCE, f"source={source!r}")
 
     url = str(crudo.get("url", "")).strip()
