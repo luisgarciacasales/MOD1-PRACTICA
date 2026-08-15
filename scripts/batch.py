@@ -74,6 +74,7 @@ def _volumenes() -> str:
         ("cuar", "SELECT COUNT(*) FROM silver_dead_letters"),
         ("precios", "SELECT COUNT(*) FROM silver_market_prices"),
         ("macro", "SELECT COUNT(*) FROM silver_macro_indicators"),
+        ("fund", "SELECT COUNT(*) FROM silver_fundamentals"),
     )
     try:
         with db.conectar() as conexion, conexion.cursor() as cur:

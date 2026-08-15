@@ -48,3 +48,12 @@ TODOS_LOS_CAMPOS: dict[str, str] = {**CAMPOS_INCOME, **CAMPOS_BALANCE, **CAMPOS_
 # Mismo universo que precios, sin el benchmark (un índice no reporta estados
 # financieros).
 TICKERS_FUNDAMENTALES: tuple[str, ...] = TICKERS_PRIORITARIOS
+
+# SALVEDAD observada al desplegar (14-ago-2026): `Total Revenue` de yfinance
+# salió negativo para GFNORTEO.MX en 2025-06-30 (-13.6 mil millones). No es un
+# error de ingesta — Bronze/Silver conservan el dato tal como lo entrega la
+# librería, como manda el PRD — pero un trimestre con ingresos negativos
+# distorsiona el YoY del trimestre siguiente hasta un -561%. Cualquier lectura
+# de `ingresos_yoy_pct` debe revisar primero si el trimestre base fue negativo;
+# no se filtra aquí porque ocultarlo sería más engañoso que mostrarlo con la
+# salvedad.
