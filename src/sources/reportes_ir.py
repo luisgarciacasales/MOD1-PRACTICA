@@ -8,19 +8,22 @@ inyecta a mano — el propio comunicado lo menciona en el encabezado
 noticia. Eso significa que este adaptador no necesita tocar el contrato ni
 `validate.py` más allá de registrar el nombre de la fuente.
 
-Ninguna de las tres emisoras piloto expone RSS ni una URL de reporte 100%
-predecible por fórmula (los nombres de archivo varían de un trimestre a
-otro), así que cada localizador raspa la página listado en vivo. Son tres
-funciones distintas, no una genérica, porque las tres páginas tienen
-estructuras de URL distintas — ver `src/config/reportes_ir.py` para el porqué
-de cada una.
+Ninguna emisora expone RSS ni una URL de reporte 100% predecible por fórmula
+(los nombres de archivo varían de un trimestre a otro), así que cada
+localizador raspa la página listado en vivo. Tres funciones de localización,
+no una genérica: Banorte y BOLSAA tienen sitio propio con su propia
+estructura de URL; las otras 5 (Regional, BBAJIOO, GENTERA, GFINBURO, Q)
+comparten el portal de divulgación de la BMV, pero incluso ahí el nombre del
+PDF narrativo varía según la categoría regulatoria de la emisora — ver
+`_localizar_bmv_informacionfinanciera` para el detalle. Ver también
+`src/config/reportes_ir.py` para el porqué de cada URL y qué otras 8
+emisoras del universo se investigaron y NO tienen narrativo en este portal.
 
 Del PDF solo se extraen las primeras `PAGINAS_A_EXTRAER` páginas, no el
-documento completo (41-85 páginas): en las tres muestras verificadas el
-resumen ejecutivo / "Discusión y Análisis de la Administración" —el texto que
-de verdad interesa para NER y sentimiento— arranca en la página 1. El resto
-son notas a los estados financieros, que además ya cubre `yahoo_fundamentals`
-en forma estructurada; traerlas aquí duplicaría dato sin aportar señal nueva.
+documento completo (41-85 páginas), y de esas se recorta hasta el marcador de
+resumen ejecutivo (`_desde_el_resumen`): el resto son notas a los estados
+financieros, que además ya cubre `yahoo_fundamentals` en forma estructurada;
+traerlas aquí duplicaría dato sin aportar señal nueva.
 """
 
 from __future__ import annotations
@@ -149,7 +152,9 @@ def _localizar_pdf(emisora: EmisoraIR) -> tuple[str | None, date | None]:
         return _localizar_banorte(sopa, emisora.listado_url), None
     if emisora.ticker == "BOLSAA.MX":
         return _localizar_bolsaa(sopa, emisora.listado_url), None
-    # Regional y cualquier otra emisora futura vía el portal de la BMV.
+    # Regional, BBAJIOO, GENTERA, GFINBURO y Q vía el portal de la BMV — las
+    # únicas 5 (de las 15 del universo) cuya categoría regulatoria publica
+    # narrativo ahí. Ver docstring de `_localizar_bmv_informacionfinanciera`.
     return _localizar_bmv_informacionfinanciera(sopa, emisora.listado_url)
 
 
@@ -202,18 +207,41 @@ def _localizar_bmv_informacionfinanciera(
     (ya cubiertos por `yahoo_fundamentals`). El ID numérico crece con cada
     presentación, así que el mayor es el más reciente.
 
-    El nombre trae además el periodo de presentación (`sominfin_ID_AAAA-MM_N`)
+    El nombre trae además el periodo de presentación (`{cat}infin_ID_AAAA-MM_N`)
     — más confiable que buscar una fecha dentro del PDF: el "Comentarios de
     la Administración" de Regional no trae un dateline claro, solo fechas de
     notas contables sueltas que un regex no puede distinguir de la real. Se
     usa el día 1 del mes como aproximación explícita, no exacta.
+
+    IMPORTANTE (descubierto al mapear las 12 emisoras restantes, 15-ago-2026):
+    el prefijo `{cat}` NO es fijo — depende de la clasificación regulatoria de
+    la emisora ante la BMV, no del ticker. Verificado con curl crudo contra
+    las 4 categorías que sí tienen narrativo:
+
+        SOFOM               som   infinsom/sominfin_...   (Regional)
+        Banco               bnc   infinbnc/bncinfin_...   (BanBajío, Gentera)
+        Grupo financiero     gps   infingps/gpsinfin_...   (Inbursa)
+        Aseguradora         asg   infinasg/asginfin_...   (Quálitas)
+
+    Los corporativos no financieros (Walmex, América Móvil, Grupo México,
+    CEMEX, FEMSA, Alsea) NO publican este tipo de documento en este portal —
+    solo XBRL y, en algunos casos, un PDF tabulado sin narrativo separado.
+    BBVA.MX y SANN.MX (matrices españolas vía SIC) tampoco: su última
+    divulgación periódica es un 10-K/8-K anual, no un narrativo trimestral
+    mexicano — consistente con la salvedad ya documentada en
+    `src/config/tickers.py` sobre su exposición diluida a México. Para esas
+    8 emisoras, este localizador no encuentra nada — no es un fallo, es que
+    el documento no existe aquí.
     """
     mejor: tuple[int, str, date | None] | None = None
     for a in sopa.find_all("a", href=True):
-        m = re.search(r"/docs-pub/infinsom/sominfin_(\d+)_(\d{4})-(\d{2})_[^/\"]+\.pdf$", a["href"])
+        m = re.search(
+            r"/docs-pub/infin(bnc|gps|asg|som)/\1infin_(\d+)_(\d{4})-(\d{2})_[^/\"]+\.pdf$",
+            a["href"],
+        )
         if not m:
             continue
-        id_num, anio, mes = m.groups()
+        _cat, id_num, anio, mes = m.groups()
         id_num = int(id_num)
         try:
             fecha = date(int(anio), int(mes), 1)
