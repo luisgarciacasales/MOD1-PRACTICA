@@ -5,7 +5,7 @@ sin desbordar los 16 GB de VRAM. El paralelismo lo limita un semáforo, no el
 tamaño de la lista: así se puede pasar el corpus entero y aun así nunca haber
 más de N peticiones en vuelo.
 
-Dos particularidades de `qwen3.5:9b` descubiertas al integrarlo, ambas
+Tres particularidades de `qwen3.5:9b` descubiertas al integrarlo, todas
 manejadas aquí para que no contaminen la lógica de negocio:
 
 1. **Es un modelo de razonamiento.** Por defecto emite su cadena de pensamiento
@@ -14,6 +14,12 @@ manejadas aquí para que no contaminen la lógica de negocio:
    `think: false`.
 2. **Envuelve el JSON en vallas de Markdown** pese a `format: "json"`, así que
    hay que despegarlas antes de parsear.
+3. **A veces olvida las comillas de un ticker suelto dentro de un array**
+   (`"tickers": [GFNORTEO.MX]` en vez de `["GFNORTEO.MX"]`), sin patrón fijo
+   por emisora — se vio con GFNORTEO.MX, SANN.MX y FEMSAUBD.MX. Determinístico
+   con `temperature: 0`: si se produce, se repite siempre para ese texto, así
+   que reintentar no ayuda. Se repara con una regex dirigida antes de
+   `json.loads` (ADR-15).
 
 Política FinOps (CLAUDE.md): toda llamada declara `num_ctx` de forma explícita.
 Es la única defensa contra el truncamiento silencioso del prompt — Ollama no
@@ -40,6 +46,14 @@ ESPERA_BASE = 1.5
 
 _VALLA = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.MULTILINE)
 
+# ADR-15: qwen3.5:9b a veces emite un ticker suelto sin comillas dentro de un
+# array JSON (p.ej. `[GFNORTEO.MX]`), lo que invalida el objeto entero pese a
+# que el resto del contenido (personas, empresas, sentimiento) sí llegó bien
+# formado. Solo se ata a tokens con forma de ticker (mayúsculas + ".MX") justo
+# entre `[`/`,` y `,`/`]`, así que nunca toca un valor que ya viene entre
+# comillas — es una reparación, no una reescritura del JSON.
+_TICKER_SUELTO = re.compile(r"(?<=[\[,])\s*([A-Z][A-Z0-9]*\.MX)\s*(?=[\],])")
+
 
 @dataclass
 class RespuestaLLM:
@@ -50,6 +64,10 @@ class RespuestaLLM:
 
 def _despegar_vallas(texto: str) -> str:
     return _VALLA.sub("", texto).strip()
+
+
+def _reparar_tickers_sueltos(texto: str) -> str:
+    return _TICKER_SUELTO.sub(lambda m: f'"{m.group(1)}"', texto)
 
 
 class ClienteOllama:
@@ -129,10 +147,17 @@ class ClienteOllama:
                 if payload.get("done_reason") == "length" and not contenido.strip():
                     ultimo_error = "el modelo agotó num_predict sin emitir contenido"
                 else:
+                    crudo = _despegar_vallas(contenido)
                     try:
-                        return RespuestaLLM(ok=True, datos=json.loads(_despegar_vallas(contenido)))
-                    except json.JSONDecodeError as exc:
-                        ultimo_error = f"JSON inválido: {exc}; crudo={contenido[:160]!r}"
+                        datos = json.loads(crudo)
+                    except json.JSONDecodeError:
+                        try:
+                            datos = json.loads(_reparar_tickers_sueltos(crudo))
+                        except json.JSONDecodeError as exc:
+                            ultimo_error = f"JSON inválido: {exc}; crudo={contenido[:160]!r}"
+                            datos = None
+                    if datos is not None:
+                        return RespuestaLLM(ok=True, datos=datos)
 
             if intento < REINTENTOS:
                 await asyncio.sleep(ESPERA_BASE * (intento + 1))

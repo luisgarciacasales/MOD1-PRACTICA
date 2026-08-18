@@ -229,6 +229,26 @@ directa.
   `root` en bind mounts; aquí no hay bind mount de datos. El servicio `app` sí
   la respeta.
 
+### 4.11 Un ticker suelto sin comillas invalida el JSON de NER
+
+Descubierto al reprocesar 9 noticias que quedaban con `sentiment_label` nulo
+tras la corrida del 2026-08-17: `qwen3.5:9b` a veces escribe
+`"tickers": [GFNORTEO.MX]` en vez de `["GFNORTEO.MX"]`, y ese único token sin
+comillas tumba el `json.loads` del objeto completo — personas, empresas y
+sentimiento se pierden con él aunque llegaran bien formados. No es un caso de
+Banorte: se reprodujo igual con `SANN.MX` y `FEMSAUBD.MX` al llamar a Ollama
+directamente con esos textos.
+
+Con `temperature: 0` el fallo es determinístico: la misma noticia produce el
+mismo JSON roto siempre, así que reintentar el mismo texto no cambia nada (se
+comprobó con dos corridas idénticas de `enrich --reprocess`). Se reparó con una
+regex dirigida en `src/pipeline/ollama.py` que solo envuelve en comillas un
+token con forma de ticker cuando aparece suelto entre `[`/`,` y `,`/`]` —
+nunca toca un valor que ya viene entre comillas, así que es una reparación, no
+una reescritura del contrato JSON. Validado con una prueba de humo contra las
+9 respuestas reales antes de integrarlo al cliente: 1/9 parseaban antes,
+9/9 después. (ADR-15)
+
 ---
 
 ## 5. Rendimiento medido
@@ -304,6 +324,7 @@ Los ADR completos están en [`docs/HARNESS.md`](HARNESS.md). Resumen:
 | 12 | `qwen3.5` razona: hay que desactivarlo con `think: false` |
 | 13 | El async×8 está implementado pero lo bloquea `OLLAMA_NUM_PARALLEL=1` |
 | 14 | El repo es ejecutable por cualquiera: detección de contexto por alias SSH y perfil `standalone` de Ollama |
+| 15 | `qwen3.5:9b` a veces omite comillas en un ticker suelto del JSON de NER; se repara con regex dirigida, no con cambios de prompt |
 
 ---
 

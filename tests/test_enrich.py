@@ -8,7 +8,7 @@ reglas son las que impiden que eso llegue a Gold.
 from __future__ import annotations
 
 from src.pipeline.enrich import Enriquecida, aplicar_ma, aplicar_ner
-from src.pipeline.ollama import _despegar_vallas
+from src.pipeline.ollama import _despegar_vallas, _reparar_tickers_sueltos
 
 FINTECHS = {"Nu", "Stori", "Klar"}
 
@@ -123,6 +123,25 @@ def test_despega_vallas_de_markdown():
     assert _despegar_vallas('```json\n{"a": 1}\n```') == '{"a": 1}'
     assert _despegar_vallas('```\n{"a": 1}\n```') == '{"a": 1}'
     assert _despegar_vallas('{"a": 1}') == '{"a": 1}'
+
+
+def test_repara_ticker_suelto_sin_comillas():
+    """ADR-15: qwen3.5 a veces omite las comillas de un ticker dentro de un
+    array (`[GFNORTEO.MX]`), lo que invalida el JSON entero pese a que el
+    resto del objeto sí llegó bien formado. Determinístico con temperature=0:
+    reintentar no cambia el resultado, hay que repararlo."""
+    import json
+
+    crudo = '{"tickers": [GFNORTEO.MX], "personas": [], "sentimiento": "positive"}'
+    reparado = _reparar_tickers_sueltos(crudo)
+    assert json.loads(reparado)["tickers"] == ["GFNORTEO.MX"]
+
+
+def test_reparar_tickers_sueltos_no_toca_json_ya_valido():
+    """La regex debe ser un no-op sobre JSON que ya viene bien formado — nunca
+    debe reescribir un valor que ya está entre comillas."""
+    valido = '{"tickers": ["GFNORTEO.MX", "SANN.MX"], "sentimiento": "neutral"}'
+    assert _reparar_tickers_sueltos(valido) == valido
 
 
 def test_respaldo_lexico_de_sector_para_proxy():
