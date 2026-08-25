@@ -18,7 +18,7 @@ import json
 
 from src.config.banxico_series import SERIES_POR_ID
 from src.config.inegi_series import INDICADORES_POR_ID
-from src.config.tickers import BENCHMARK
+from src.config.tickers import BENCHMARK, TICKERS_MONEDA_FINANCIERA_DISTINTA
 from src.pipeline import db
 
 # Dos decisiones dentro de esta consulta que conviene no perder de vista:
@@ -263,6 +263,11 @@ RETURNING (xmax = 0)
 # respaldo esas emisoras —justo la prioridad del roadmap— no tendrían P/U
 # nunca. eps_source declara cuál se usó: no son la misma medida (anual
 # actualiza 1 vez al año, TTM trimestral 4 veces).
+#
+# Exclusión de moneda (TICKERS_MONEDA_FINANCIERA_DISTINTA, ver
+# src/config/tickers.py): CEMEXCPO.MX/GMEXICOB.MX reportan en USD, BBVA.MX/
+# SANN.MX en EUR, todas con precio en MXN — sin excluirlas el P/U sale en
+# cientos de veces, un artefacto de conversión, no una lectura real.
 _SQL_VALUATION = """
 WITH eps_ttm AS (
     SELECT ticker, period_end,
@@ -304,6 +309,7 @@ precio_eps AS (
         LIMIT 1
     ) a ON TRUE
     WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA
+      AND p.ticker <> ALL(%(moneda_distinta)s)
 ),
 con_pe AS (
     SELECT ticker, date, adj_close, eps_ttm, eps_source,
@@ -337,6 +343,13 @@ ON CONFLICT (ticker, date) DO UPDATE SET
 RETURNING (xmax = 0)
 """
 
+# Limpieza de lo que _SQL_VALUATION ya no visita: las filas de
+# TICKERS_MONEDA_FINANCIERA_DISTINTA que se insertaron ANTES de que existiera
+# la exclusión de moneda (25-ago-2026) se quedarían inertes en Gold —
+# artefactos correctos en su momento, erróneos ahora — porque un
+# ON CONFLICT solo actualiza filas que la nueva consulta vuelve a visitar.
+_SQL_VALUATION_LIMPIAR = "DELETE FROM gold_valuation WHERE ticker = ANY(%(moneda_distinta)s)"
+
 
 def _contar(cur) -> tuple[int, int]:
     """Separa inserciones de actualizaciones con el `RETURNING (xmax = 0)`."""
@@ -367,7 +380,9 @@ def ejecutar() -> int:
         cur.execute(_SQL_FUNDAMENTALES_ANUAL)
         fa_nuevas, fa_act = _contar(cur)
 
-        cur.execute(_SQL_VALUATION, {"benchmark": BENCHMARK})
+        moneda_distinta = list(TICKERS_MONEDA_FINANCIERA_DISTINTA)
+        cur.execute(_SQL_VALUATION_LIMPIAR, {"moneda_distinta": moneda_distinta})
+        cur.execute(_SQL_VALUATION, {"benchmark": BENCHMARK, "moneda_distinta": moneda_distinta})
         v_nuevas, v_act = _contar(cur)
         conexion.commit()
 

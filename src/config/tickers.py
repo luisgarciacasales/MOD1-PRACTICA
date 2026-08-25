@@ -167,3 +167,25 @@ SECTOR_A_PROXY: dict[str, tuple[str, ...]] = {
 # Sectores válidos que el LLM puede devolver. Restringir el vocabulario evita
 # que la inferencia invente etiquetas que luego no mapean a ningún proxy.
 SECTORES_VALIDOS: frozenset[str] = frozenset(SECTOR_A_PROXY)
+
+
+# --- Emisoras con moneda de reporte distinta a la de cotización (F2) --------
+#
+# Descubierto al desplegar el motor de valuación (25-ago-2026): el P/U de
+# CEMEXCPO.MX salía en ~448x y el de GMEXICOB.MX en ~273x — números sin
+# sentido económico. Causa verificada vía yfinance (`financialCurrency` vs.
+# `currency`): ambas reportan sus estados financieros en USD mientras el
+# precio cotiza en MXN en la BMV. Dividir un precio en pesos entre una UPA en
+# dólares no es un P/U, es un artefacto de conversión.
+#
+# BBVA.MX y SANN.MX ya cargaban una salvedad por otra razón (EMISORAS_SIC:
+# son la matriz extranjera, no la filial mexicana) y coinciden en el mismo
+# efecto práctico — reportan en EUR.
+#
+# _SQL_VALUATION (transform.py) excluye estas cuatro de P/U hasta que exista
+# conversión FX. SF43718 (USD/MXN, ya se ingiere vía Banxico) resolvería
+# CEMEX/GMéxico; BBVA/SANN necesitarían EUR/MXN, que hoy no está en el
+# universo de series de Banxico — ver src/config/banxico_series.py.
+TICKERS_MONEDA_FINANCIERA_DISTINTA: frozenset[str] = frozenset({
+    "CEMEXCPO.MX", "GMEXICOB.MX", "BBVA.MX", "SANN.MX",
+})
