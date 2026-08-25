@@ -2,6 +2,8 @@
 
 Precios: retornos diarios, medias móviles 7/30 y volatilidad 30.
 Macro: nombre legible de la serie y variación interanual.
+Valuación (F2, roadmap 25-ago-2026): P/U histórico con z-score de 1 año
+contra la propia historia de cada emisora — ver `_SQL_VALUATION`.
 
 Se hace en SQL con *window functions*, no en pandas: el PRD §7 lo especifica
 así y evita traer 4 000 filas a Python para devolverlas acto seguido.
@@ -232,6 +234,80 @@ RETURNING (xmax = 0)
 """
 
 
+# F2 (roadmap 25-ago-2026) — P/U histórico con z-score contra la propia
+# historia de la emisora. Ver sql/010_valuation.sql para qué queda fuera de
+# este corte (P/VL, EV/EBITDA, dividend yield) y por qué.
+#
+# REZAGO_PUBLICACION_DIAS: un trimestre no está disponible el día que cierra
+# — se publica semanas después. Usar period_end sin rezago sería lookahead
+# bias: el P/U de una fecha usaría una UPA que en la realidad todavía no
+# existía ese día. 45 días es una aproximación (mismo espíritu que la
+# aproximación de fecha ya documentada en gold_fundamentals — "declarada,
+# no fingida"), no un dato verificado emisora por emisora.
+#
+# eps_ttm exige 4 trimestres consecutivos (ROWS BETWEEN 3 PRECEDING): una UPA
+# TTM de 1-2 trimestres subestimaría el denominador y produciría un P/U
+# falsamente alto.
+#
+# El z-score exige al menos 60 sesiones de historia (~3 meses), no las ~252
+# de un año completo: a diferencia de ma_30d/volatility_30d en _SQL_PRECIOS
+# —donde exigir el conteo exacto evita ETIQUETAR 3 días como "media de 30"—,
+# aquí un z-score sobre una ventana parcial sigue siendo un z-score válido,
+# solo con menos grados de libertad. Negarlo hasta el día 252 dejaría sin
+# lectura todo el primer año de cada emisora.
+_SQL_VALUATION = """
+WITH eps_ttm AS (
+    SELECT ticker, period_end,
+           SUM(utilidad_por_accion) OVER w AS eps_ttm,
+           COUNT(utilidad_por_accion) OVER w AS n_trimestres,
+           period_end + 45 AS disponible_desde
+    FROM silver_fundamentals
+    WINDOW w AS (PARTITION BY ticker ORDER BY period_end ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)
+),
+precio_eps AS (
+    SELECT p.ticker, p.date, p.adj_close, e.eps_ttm
+    FROM silver_market_prices p
+    LEFT JOIN LATERAL (
+        SELECT eps.eps_ttm
+        FROM eps_ttm eps
+        WHERE eps.ticker = p.ticker
+          AND eps.n_trimestres = 4
+          AND eps.disponible_desde <= p.date
+        ORDER BY eps.period_end DESC
+        LIMIT 1
+    ) e ON TRUE
+    WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA
+),
+con_pe AS (
+    SELECT ticker, date, adj_close, eps_ttm,
+           CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio
+    FROM precio_eps
+),
+con_z AS (
+    SELECT *,
+           AVG(pe_ratio)        OVER w AS pe_media_1y,
+           STDDEV_SAMP(pe_ratio) OVER w AS pe_desv_1y,
+           COUNT(pe_ratio)      OVER w AS n_1y
+    FROM con_pe
+    WINDOW w AS (PARTITION BY ticker ORDER BY date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW)
+)
+INSERT INTO gold_valuation (ticker, date, adj_close, eps_ttm, pe_ratio, pe_zscore_1y, ingested_at)
+SELECT ticker, date, adj_close, eps_ttm, pe_ratio,
+       CASE WHEN n_1y >= 60 AND pe_desv_1y > 0
+            THEN (pe_ratio - pe_media_1y) / pe_desv_1y END,
+       NOW()
+FROM con_z
+WHERE pe_ratio IS NOT NULL
+ON CONFLICT (ticker, date) DO UPDATE SET
+    adj_close    = EXCLUDED.adj_close,
+    eps_ttm      = EXCLUDED.eps_ttm,
+    pe_ratio     = EXCLUDED.pe_ratio,
+    pe_zscore_1y = EXCLUDED.pe_zscore_1y,
+    ingested_at  = NOW()
+RETURNING (xmax = 0)
+"""
+
+
 def _contar(cur) -> tuple[int, int]:
     """Separa inserciones de actualizaciones con el `RETURNING (xmax = 0)`."""
     filas = cur.fetchall()
@@ -260,6 +336,9 @@ def ejecutar() -> int:
 
         cur.execute(_SQL_FUNDAMENTALES_ANUAL)
         fa_nuevas, fa_act = _contar(cur)
+
+        cur.execute(_SQL_VALUATION, {"benchmark": BENCHMARK})
+        v_nuevas, v_act = _contar(cur)
         conexion.commit()
 
         cur.execute("""
@@ -288,12 +367,18 @@ def ejecutar() -> int:
         )
         con_fund_anual_yoy = cur.fetchone()[0]
 
+        cur.execute(
+            "SELECT COUNT(*), COUNT(*) FILTER (WHERE pe_zscore_1y IS NOT NULL) FROM gold_valuation"
+        )
+        con_pe, con_pe_z = cur.fetchone()
+
     print(f"{'TABLA':<24} {'NUEVAS':>8} {'ACTUALIZ':>9}")
     print("-" * 43)
     print(f"{'gold_market_prices':<24} {p_nuevas:>8} {p_act:>9}")
     print(f"{'gold_macro_indicators':<24} {m_nuevas:>8} {m_act:>9}")
     print(f"{'gold_fundamentals':<24} {f_nuevas:>8} {f_act:>9}")
     print(f"{'gold_fundamentals_anual':<24} {fa_nuevas:>8} {fa_act:>9}")
+    print(f"{'gold_valuation':<24} {v_nuevas:>8} {v_act:>9}")
     print("-" * 43)
     print()
     print("cobertura de las métricas derivadas:")
@@ -306,8 +391,9 @@ def ejecutar() -> int:
     print(f"  yoy_change_pct    {con_yoy}   (macro)")
     print(f"  ingresos_yoy_pct  {con_fund_yoy}   (fundamentales trimestrales)")
     print(f"  ingresos_yoy_pct  {con_fund_anual_yoy}   (fundamentales anuales)")
+    print(f"  pe_ratio          {con_pe}   (F2, {con_pe_z} con z-score de 1 año)")
     print()
-    print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas + fa_nuevas}  "
+    print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas + fa_nuevas + v_nuevas}  "
           f"(reprocesar debe dar 0 — criterio PRD §8)")
     return 0
 
