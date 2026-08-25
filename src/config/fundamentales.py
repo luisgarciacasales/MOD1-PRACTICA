@@ -35,6 +35,9 @@ CAMPOS_BALANCE: dict[str, str] = {
     "Total Assets": "activo_total",
     "Total Liabilities Net Minority Interest": "pasivo_total",
     "Stockholders Equity": "capital_contable",
+    # F2 (25-ago-2026): pieza que faltaba para P/VL. Cobertura verificada
+    # 94-100% en los 12 tickers de gold_valuation, trimestral y anual.
+    "Ordinary Shares Number": "acciones_en_circulacion",
 }
 
 CAMPOS_CASHFLOW: dict[str, str] = {

@@ -94,23 +94,25 @@ RETURNING (xmax = 0)
 _SQL_FUNDAMENTALES = """
 INSERT INTO silver_fundamentals (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
-    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
-    ingested_at, raw_batch_uuid
+    activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
+    flujo_operativo, flujo_libre, ingested_at, raw_batch_uuid
 ) VALUES (
     %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
     %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
-    %(capital_contable)s, %(flujo_operativo)s, %(flujo_libre)s,
+    %(capital_contable)s, %(acciones_en_circulacion)s,
+    %(flujo_operativo)s, %(flujo_libre)s,
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales    = EXCLUDED.ingresos_totales,
-    utilidad_neta       = EXCLUDED.utilidad_neta,
-    utilidad_por_accion = EXCLUDED.utilidad_por_accion,
-    activo_total        = EXCLUDED.activo_total,
-    pasivo_total        = EXCLUDED.pasivo_total,
-    capital_contable    = EXCLUDED.capital_contable,
-    flujo_operativo     = EXCLUDED.flujo_operativo,
-    flujo_libre         = EXCLUDED.flujo_libre
+    ingresos_totales        = EXCLUDED.ingresos_totales,
+    utilidad_neta           = EXCLUDED.utilidad_neta,
+    utilidad_por_accion     = EXCLUDED.utilidad_por_accion,
+    activo_total            = EXCLUDED.activo_total,
+    pasivo_total            = EXCLUDED.pasivo_total,
+    capital_contable        = EXCLUDED.capital_contable,
+    acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
+    flujo_operativo         = EXCLUDED.flujo_operativo,
+    flujo_libre             = EXCLUDED.flujo_libre
 RETURNING (xmax = 0)
 """
 
@@ -121,23 +123,25 @@ RETURNING (xmax = 0)
 _SQL_FUNDAMENTALES_ANUAL = """
 INSERT INTO silver_fundamentals_anual (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
-    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
-    ingested_at, raw_batch_uuid
+    activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
+    flujo_operativo, flujo_libre, ingested_at, raw_batch_uuid
 ) VALUES (
     %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
     %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
-    %(capital_contable)s, %(flujo_operativo)s, %(flujo_libre)s,
+    %(capital_contable)s, %(acciones_en_circulacion)s,
+    %(flujo_operativo)s, %(flujo_libre)s,
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales    = EXCLUDED.ingresos_totales,
-    utilidad_neta       = EXCLUDED.utilidad_neta,
-    utilidad_por_accion = EXCLUDED.utilidad_por_accion,
-    activo_total        = EXCLUDED.activo_total,
-    pasivo_total        = EXCLUDED.pasivo_total,
-    capital_contable    = EXCLUDED.capital_contable,
-    flujo_operativo     = EXCLUDED.flujo_operativo,
-    flujo_libre         = EXCLUDED.flujo_libre
+    ingresos_totales        = EXCLUDED.ingresos_totales,
+    utilidad_neta           = EXCLUDED.utilidad_neta,
+    utilidad_por_accion     = EXCLUDED.utilidad_por_accion,
+    activo_total            = EXCLUDED.activo_total,
+    pasivo_total            = EXCLUDED.pasivo_total,
+    capital_contable        = EXCLUDED.capital_contable,
+    acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
+    flujo_operativo         = EXCLUDED.flujo_operativo,
+    flujo_libre             = EXCLUDED.flujo_libre
 RETURNING (xmax = 0)
 """
 

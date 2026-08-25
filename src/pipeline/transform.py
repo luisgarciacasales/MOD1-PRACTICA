@@ -2,8 +2,9 @@
 
 Precios: retornos diarios, medias móviles 7/30 y volatilidad 30.
 Macro: nombre legible de la serie y variación interanual.
-Valuación (F2, roadmap 25-ago-2026): P/U histórico con z-score de 1 año
-contra la propia historia de cada emisora — ver `_SQL_VALUATION`.
+Valuación (F2, roadmap 25-ago-2026): P/U y P/VL históricos, cada uno con
+z-score de 1 año contra la propia historia de cada emisora — ver
+`_SQL_VALUATION`.
 
 Se hace en SQL con *window functions*, no en pandas: el PRD §7 lo especifica
 así y evita traer 4 000 filas a Python para devolverlas acto seguido.
@@ -146,12 +147,14 @@ RETURNING (xmax = 0)
 _SQL_FUNDAMENTALES = """
 INSERT INTO gold_fundamentals (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
-    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
-    ingresos_yoy_pct, utilidad_neta_yoy_pct, ingested_at
+    activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
+    flujo_operativo, flujo_libre, ingresos_yoy_pct, utilidad_neta_yoy_pct,
+    ingested_at
 )
 SELECT s.ticker, s.period_end, s.ingresos_totales, s.utilidad_neta,
        s.utilidad_por_accion, s.activo_total, s.pasivo_total,
-       s.capital_contable, s.flujo_operativo, s.flujo_libre,
+       s.capital_contable, s.acciones_en_circulacion,
+       s.flujo_operativo, s.flujo_libre,
        CASE
            WHEN prev.ingresos_totales IS NULL OR prev.ingresos_totales = 0 THEN NULL
            ELSE 100.0 * (s.ingresos_totales / prev.ingresos_totales - 1)
@@ -171,17 +174,18 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) prev ON TRUE
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales      = EXCLUDED.ingresos_totales,
-    utilidad_neta         = EXCLUDED.utilidad_neta,
-    utilidad_por_accion   = EXCLUDED.utilidad_por_accion,
-    activo_total          = EXCLUDED.activo_total,
-    pasivo_total          = EXCLUDED.pasivo_total,
-    capital_contable      = EXCLUDED.capital_contable,
-    flujo_operativo       = EXCLUDED.flujo_operativo,
-    flujo_libre           = EXCLUDED.flujo_libre,
-    ingresos_yoy_pct      = EXCLUDED.ingresos_yoy_pct,
-    utilidad_neta_yoy_pct = EXCLUDED.utilidad_neta_yoy_pct,
-    ingested_at           = NOW()
+    ingresos_totales         = EXCLUDED.ingresos_totales,
+    utilidad_neta            = EXCLUDED.utilidad_neta,
+    utilidad_por_accion      = EXCLUDED.utilidad_por_accion,
+    activo_total             = EXCLUDED.activo_total,
+    pasivo_total             = EXCLUDED.pasivo_total,
+    capital_contable         = EXCLUDED.capital_contable,
+    acciones_en_circulacion  = EXCLUDED.acciones_en_circulacion,
+    flujo_operativo          = EXCLUDED.flujo_operativo,
+    flujo_libre              = EXCLUDED.flujo_libre,
+    ingresos_yoy_pct         = EXCLUDED.ingresos_yoy_pct,
+    utilidad_neta_yoy_pct    = EXCLUDED.utilidad_neta_yoy_pct,
+    ingested_at              = NOW()
 RETURNING (xmax = 0)
 """
 
@@ -194,12 +198,14 @@ RETURNING (xmax = 0)
 _SQL_FUNDAMENTALES_ANUAL = """
 INSERT INTO gold_fundamentals_anual (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
-    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
-    ingresos_yoy_pct, utilidad_neta_yoy_pct, ingested_at
+    activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
+    flujo_operativo, flujo_libre, ingresos_yoy_pct, utilidad_neta_yoy_pct,
+    ingested_at
 )
 SELECT s.ticker, s.period_end, s.ingresos_totales, s.utilidad_neta,
        s.utilidad_por_accion, s.activo_total, s.pasivo_total,
-       s.capital_contable, s.flujo_operativo, s.flujo_libre,
+       s.capital_contable, s.acciones_en_circulacion,
+       s.flujo_operativo, s.flujo_libre,
        CASE
            WHEN prev.ingresos_totales IS NULL OR prev.ingresos_totales = 0 THEN NULL
            ELSE 100.0 * (s.ingresos_totales / prev.ingresos_totales - 1)
@@ -219,15 +225,16 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) prev ON TRUE
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales      = EXCLUDED.ingresos_totales,
-    utilidad_neta         = EXCLUDED.utilidad_neta,
-    utilidad_por_accion   = EXCLUDED.utilidad_por_accion,
-    activo_total          = EXCLUDED.activo_total,
-    pasivo_total          = EXCLUDED.pasivo_total,
-    capital_contable      = EXCLUDED.capital_contable,
-    flujo_operativo       = EXCLUDED.flujo_operativo,
-    flujo_libre           = EXCLUDED.flujo_libre,
-    ingresos_yoy_pct      = EXCLUDED.ingresos_yoy_pct,
+    ingresos_totales         = EXCLUDED.ingresos_totales,
+    utilidad_neta            = EXCLUDED.utilidad_neta,
+    utilidad_por_accion      = EXCLUDED.utilidad_por_accion,
+    activo_total             = EXCLUDED.activo_total,
+    pasivo_total             = EXCLUDED.pasivo_total,
+    capital_contable         = EXCLUDED.capital_contable,
+    acciones_en_circulacion  = EXCLUDED.acciones_en_circulacion,
+    flujo_operativo          = EXCLUDED.flujo_operativo,
+    flujo_libre              = EXCLUDED.flujo_libre,
+    ingresos_yoy_pct         = EXCLUDED.ingresos_yoy_pct,
     utilidad_neta_yoy_pct = EXCLUDED.utilidad_neta_yoy_pct,
     ingested_at           = NOW()
 RETURNING (xmax = 0)
@@ -267,7 +274,19 @@ RETURNING (xmax = 0)
 # Exclusión de moneda (TICKERS_MONEDA_FINANCIERA_DISTINTA, ver
 # src/config/tickers.py): CEMEXCPO.MX/GMEXICOB.MX reportan en USD, BBVA.MX/
 # SANN.MX en EUR, todas con precio en MXN — sin excluirlas el P/U sale en
-# cientos de veces, un artefacto de conversión, no una lectura real.
+# cientos de veces, un artefacto de conversión, no una lectura real. Aplica
+# igual al P/VL: capital_contable tiene el mismo problema de moneda.
+#
+# P/VL (013_valuation_pb.sql, mismo despliegue que agregó
+# acciones_en_circulacion al contrato de fundamentales): book_value_per_share
+# = capital_contable / acciones_en_circulacion. A diferencia de la UPA, el
+# valor en libros es una foto de BALANCE, no un flujo — no se acumula en
+# TTM, solo se usa el periodo más reciente disponible a esa fecha (mismo
+# rezago de 45 días, mismo respaldo anual con book_source espejando a
+# eps_source). Alcance deliberado de este corte: una fila solo lleva P/VL si
+# YA tenía P/U (mismo WHERE pe_ratio IS NOT NULL de siempre) — no relajar esa
+# condición evita reabrir la restricción NOT NULL de 010_valuation.sql sobre
+# eps_ttm/pe_ratio por una ganancia de cobertura marginal.
 _SQL_VALUATION = """
 WITH eps_ttm AS (
     SELECT ticker, period_end,
@@ -286,10 +305,26 @@ eps_anual AS (
     FROM silver_fundamentals_anual
     WHERE utilidad_por_accion IS NOT NULL
 ),
-precio_eps AS (
+libro_trimestral AS (
+    SELECT ticker, period_end,
+           capital_contable / NULLIF(acciones_en_circulacion, 0) AS bvps,
+           period_end + 45 AS disponible_desde
+    FROM silver_fundamentals
+    WHERE capital_contable IS NOT NULL AND acciones_en_circulacion IS NOT NULL
+),
+libro_anual AS (
+    SELECT ticker, period_end,
+           capital_contable / NULLIF(acciones_en_circulacion, 0) AS bvps,
+           period_end + 45 AS disponible_desde
+    FROM silver_fundamentals_anual
+    WHERE capital_contable IS NOT NULL AND acciones_en_circulacion IS NOT NULL
+),
+precio_multiplos AS (
     SELECT p.ticker, p.date, p.adj_close,
            COALESCE(t.eps_ttm, a.eps_anual) AS eps_ttm,
-           CASE WHEN t.eps_ttm IS NOT NULL THEN 'trimestral_ttm' ELSE 'anual' END AS eps_source
+           CASE WHEN t.eps_ttm IS NOT NULL THEN 'trimestral_ttm' ELSE 'anual' END AS eps_source,
+           COALESCE(lt.bvps, la.bvps) AS book_value_per_share,
+           CASE WHEN lt.bvps IS NOT NULL THEN 'trimestral' ELSE 'anual' END AS book_source
     FROM silver_market_prices p
     LEFT JOIN LATERAL (
         SELECT eps.eps_ttm
@@ -308,38 +343,68 @@ precio_eps AS (
         ORDER BY ea.period_end DESC
         LIMIT 1
     ) a ON TRUE
-    WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA
+    LEFT JOIN LATERAL (
+        SELECT lt.bvps
+        FROM libro_trimestral lt
+        WHERE lt.ticker = p.ticker
+          AND lt.disponible_desde <= p.date
+        ORDER BY lt.period_end DESC
+        LIMIT 1
+    ) lt ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT la.bvps
+        FROM libro_anual la
+        WHERE la.ticker = p.ticker
+          AND la.disponible_desde <= p.date
+        ORDER BY la.period_end DESC
+        LIMIT 1
+    ) la ON TRUE
+    WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA ni valor en libros
       AND p.ticker <> ALL(%(moneda_distinta)s)
 ),
-con_pe AS (
+con_multiplos AS (
     SELECT ticker, date, adj_close, eps_ttm, eps_source,
-           CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio
-    FROM precio_eps
+           CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio,
+           book_value_per_share, book_source,
+           CASE WHEN book_value_per_share > 0
+                THEN adj_close / book_value_per_share END AS pb_ratio
+    FROM precio_multiplos
 ),
 con_z AS (
     SELECT *,
-           AVG(pe_ratio)        OVER w AS pe_media_1y,
+           AVG(pe_ratio)         OVER w AS pe_media_1y,
            STDDEV_SAMP(pe_ratio) OVER w AS pe_desv_1y,
-           COUNT(pe_ratio)      OVER w AS n_1y
-    FROM con_pe
+           COUNT(pe_ratio)       OVER w AS n_1y_pe,
+           AVG(pb_ratio)         OVER w AS pb_media_1y,
+           STDDEV_SAMP(pb_ratio) OVER w AS pb_desv_1y,
+           COUNT(pb_ratio)       OVER w AS n_1y_pb
+    FROM con_multiplos
     WINDOW w AS (PARTITION BY ticker ORDER BY date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW)
 )
 INSERT INTO gold_valuation (
-    ticker, date, adj_close, eps_ttm, eps_source, pe_ratio, pe_zscore_1y, ingested_at
+    ticker, date, adj_close, eps_ttm, eps_source, pe_ratio, pe_zscore_1y,
+    book_value_per_share, book_source, pb_ratio, pb_zscore_1y, ingested_at
 )
 SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
-       CASE WHEN n_1y >= 60 AND pe_desv_1y > 0
+       CASE WHEN n_1y_pe >= 60 AND pe_desv_1y > 0
             THEN (pe_ratio - pe_media_1y) / pe_desv_1y END,
+       book_value_per_share, book_source, pb_ratio,
+       CASE WHEN n_1y_pb >= 60 AND pb_desv_1y > 0
+            THEN (pb_ratio - pb_media_1y) / pb_desv_1y END,
        NOW()
 FROM con_z
 WHERE pe_ratio IS NOT NULL
 ON CONFLICT (ticker, date) DO UPDATE SET
-    adj_close    = EXCLUDED.adj_close,
-    eps_ttm      = EXCLUDED.eps_ttm,
-    eps_source   = EXCLUDED.eps_source,
-    pe_ratio     = EXCLUDED.pe_ratio,
-    pe_zscore_1y = EXCLUDED.pe_zscore_1y,
-    ingested_at  = NOW()
+    adj_close             = EXCLUDED.adj_close,
+    eps_ttm               = EXCLUDED.eps_ttm,
+    eps_source            = EXCLUDED.eps_source,
+    pe_ratio              = EXCLUDED.pe_ratio,
+    pe_zscore_1y          = EXCLUDED.pe_zscore_1y,
+    book_value_per_share  = EXCLUDED.book_value_per_share,
+    book_source           = EXCLUDED.book_source,
+    pb_ratio              = EXCLUDED.pb_ratio,
+    pb_zscore_1y          = EXCLUDED.pb_zscore_1y,
+    ingested_at           = NOW()
 RETURNING (xmax = 0)
 """
 
@@ -415,10 +480,12 @@ def ejecutar() -> int:
         cur.execute("""
             SELECT COUNT(*),
                    COUNT(*) FILTER (WHERE pe_zscore_1y IS NOT NULL),
-                   COUNT(*) FILTER (WHERE eps_source = 'anual')
+                   COUNT(*) FILTER (WHERE eps_source = 'anual'),
+                   COUNT(*) FILTER (WHERE pb_ratio IS NOT NULL),
+                   COUNT(*) FILTER (WHERE pb_zscore_1y IS NOT NULL)
             FROM gold_valuation
         """)
-        con_pe, con_pe_z, con_pe_anual = cur.fetchone()
+        con_pe, con_pe_z, con_pe_anual, con_pb, con_pb_z = cur.fetchone()
 
     print(f"{'TABLA':<24} {'NUEVAS':>8} {'ACTUALIZ':>9}")
     print("-" * 43)
@@ -441,6 +508,7 @@ def ejecutar() -> int:
     print(f"  ingresos_yoy_pct  {con_fund_anual_yoy}   (fundamentales anuales)")
     print(f"  pe_ratio          {con_pe}   (F2, {con_pe_z} con z-score de 1 año, "
           f"{con_pe_anual} con UPA anual de respaldo)")
+    print(f"  pb_ratio          {con_pb}   (F2, {con_pb_z} con z-score de 1 año)")
     print()
     print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas + fa_nuevas + v_nuevas}  "
           f"(reprocesar debe dar 0 — criterio PRD §8)")

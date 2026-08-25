@@ -46,6 +46,13 @@ class Fundamental(BaseModel):
     activo_total: float | None = Field(default=None, gt=0)
     pasivo_total: float | None = Field(default=None, ge=0)
     capital_contable: float | None = None
+    # Acciones en circulación (F2, 25-ago-2026): "Ordinary Shares Number" del
+    # mismo balance — la pieza que faltaba para P/VL (book_value_per_share =
+    # capital_contable / acciones_en_circulacion). No es ingreso/utilidad/
+    # activo, pero vive en el mismo estado financiero y comparte exactamente
+    # el mismo patrón de huecos dispersos que el resto — un campo más, no una
+    # fuente nueva.
+    acciones_en_circulacion: float | None = Field(default=None, gt=0)
     # Flujo de efectivo
     flujo_operativo: float | None = None
     flujo_libre: float | None = None
@@ -63,7 +70,7 @@ class Fundamental(BaseModel):
         campos = (
             self.ingresos_totales, self.utilidad_neta, self.utilidad_por_accion,
             self.activo_total, self.pasivo_total, self.capital_contable,
-            self.flujo_operativo, self.flujo_libre,
+            self.acciones_en_circulacion, self.flujo_operativo, self.flujo_libre,
         )
         if all(c is None for c in campos):
             raise ValueError("ningún campo financiero trae valor")
