@@ -255,6 +255,14 @@ RETURNING (xmax = 0)
 # aquí un z-score sobre una ventana parcial sigue siendo un z-score válido,
 # solo con menos grados de libertad. Negarlo hasta el día 252 dejaría sin
 # lectura todo el primer año de cada emisora.
+#
+# Respaldo anual (011_valuation_eps_anual.sql, descubierto al desplegar): la
+# UPA trimestral de Yahoo trae huecos estructurales en el sector financiero
+# (Q2 y a veces Q3 en blanco para Banorte, Inbursa, Quálitas, GFinbur — ni
+# con "Basic EPS" como alternativa, mismo patrón de NULL). Sin eps_anual como
+# respaldo esas emisoras —justo la prioridad del roadmap— no tendrían P/U
+# nunca. eps_source declara cuál se usó: no son la misma medida (anual
+# actualiza 1 vez al año, TTM trimestral 4 veces).
 _SQL_VALUATION = """
 WITH eps_ttm AS (
     SELECT ticker, period_end,
@@ -264,8 +272,19 @@ WITH eps_ttm AS (
     FROM silver_fundamentals
     WINDOW w AS (PARTITION BY ticker ORDER BY period_end ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)
 ),
+-- Mismo rezago de 45 días que el trimestral: el reporte anual de una
+-- financiera suele publicarse junto con su Q4, mismo calendario de
+-- disclosure — no es una segunda aproximación independiente.
+eps_anual AS (
+    SELECT ticker, period_end, utilidad_por_accion AS eps_anual,
+           period_end + 45 AS disponible_desde
+    FROM silver_fundamentals_anual
+    WHERE utilidad_por_accion IS NOT NULL
+),
 precio_eps AS (
-    SELECT p.ticker, p.date, p.adj_close, e.eps_ttm
+    SELECT p.ticker, p.date, p.adj_close,
+           COALESCE(t.eps_ttm, a.eps_anual) AS eps_ttm,
+           CASE WHEN t.eps_ttm IS NOT NULL THEN 'trimestral_ttm' ELSE 'anual' END AS eps_source
     FROM silver_market_prices p
     LEFT JOIN LATERAL (
         SELECT eps.eps_ttm
@@ -275,11 +294,19 @@ precio_eps AS (
           AND eps.disponible_desde <= p.date
         ORDER BY eps.period_end DESC
         LIMIT 1
-    ) e ON TRUE
+    ) t ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT ea.eps_anual
+        FROM eps_anual ea
+        WHERE ea.ticker = p.ticker
+          AND ea.disponible_desde <= p.date
+        ORDER BY ea.period_end DESC
+        LIMIT 1
+    ) a ON TRUE
     WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA
 ),
 con_pe AS (
-    SELECT ticker, date, adj_close, eps_ttm,
+    SELECT ticker, date, adj_close, eps_ttm, eps_source,
            CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio
     FROM precio_eps
 ),
@@ -291,8 +318,10 @@ con_z AS (
     FROM con_pe
     WINDOW w AS (PARTITION BY ticker ORDER BY date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW)
 )
-INSERT INTO gold_valuation (ticker, date, adj_close, eps_ttm, pe_ratio, pe_zscore_1y, ingested_at)
-SELECT ticker, date, adj_close, eps_ttm, pe_ratio,
+INSERT INTO gold_valuation (
+    ticker, date, adj_close, eps_ttm, eps_source, pe_ratio, pe_zscore_1y, ingested_at
+)
+SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        CASE WHEN n_1y >= 60 AND pe_desv_1y > 0
             THEN (pe_ratio - pe_media_1y) / pe_desv_1y END,
        NOW()
@@ -301,6 +330,7 @@ WHERE pe_ratio IS NOT NULL
 ON CONFLICT (ticker, date) DO UPDATE SET
     adj_close    = EXCLUDED.adj_close,
     eps_ttm      = EXCLUDED.eps_ttm,
+    eps_source   = EXCLUDED.eps_source,
     pe_ratio     = EXCLUDED.pe_ratio,
     pe_zscore_1y = EXCLUDED.pe_zscore_1y,
     ingested_at  = NOW()
@@ -367,10 +397,13 @@ def ejecutar() -> int:
         )
         con_fund_anual_yoy = cur.fetchone()[0]
 
-        cur.execute(
-            "SELECT COUNT(*), COUNT(*) FILTER (WHERE pe_zscore_1y IS NOT NULL) FROM gold_valuation"
-        )
-        con_pe, con_pe_z = cur.fetchone()
+        cur.execute("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE pe_zscore_1y IS NOT NULL),
+                   COUNT(*) FILTER (WHERE eps_source = 'anual')
+            FROM gold_valuation
+        """)
+        con_pe, con_pe_z, con_pe_anual = cur.fetchone()
 
     print(f"{'TABLA':<24} {'NUEVAS':>8} {'ACTUALIZ':>9}")
     print("-" * 43)
@@ -391,7 +424,8 @@ def ejecutar() -> int:
     print(f"  yoy_change_pct    {con_yoy}   (macro)")
     print(f"  ingresos_yoy_pct  {con_fund_yoy}   (fundamentales trimestrales)")
     print(f"  ingresos_yoy_pct  {con_fund_anual_yoy}   (fundamentales anuales)")
-    print(f"  pe_ratio          {con_pe}   (F2, {con_pe_z} con z-score de 1 año)")
+    print(f"  pe_ratio          {con_pe}   (F2, {con_pe_z} con z-score de 1 año, "
+          f"{con_pe_anual} con UPA anual de respaldo)")
     print()
     print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas + fa_nuevas + v_nuevas}  "
           f"(reprocesar debe dar 0 — criterio PRD §8)")
