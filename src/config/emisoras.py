@@ -40,6 +40,9 @@ ALIAS_EMISORAS: dict[str, tuple[str, ...]] = {
     # SECTORIAL de abajo, que es un campo distinto y ahí sí es correcto.)
     "BOLSAA.MX": ("grupo bmv", "bolsa mexicana de valores s.a.b", "bolsaa"),
     "Q.MX": ("qualitas", "qualitas controladora", "quálitas"),
+    # Añadida 2026-08-25 (roadmap F1, verificada contra Yahoo el mismo día:
+    # ver la nota de ampliación en config/tickers.py).
+    "ACTINVRB.MX": ("actinver", "grupo financiero actinver", "casa de bolsa actinver"),
     # Matrices españolas vía SIC (ver EMISORAS_SIC en config/tickers.py). Los
     # alias apuntan a la FILIAL mexicana porque es de ella de la que habla la
     # prensa; el precio disponible es el de la matriz, y esa asimetría es

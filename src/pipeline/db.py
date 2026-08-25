@@ -114,6 +114,33 @@ ON CONFLICT (ticker, period_end) DO UPDATE SET
 RETURNING (xmax = 0)
 """
 
+# Misma forma que _SQL_FUNDAMENTALES, tabla distinta (ver
+# sql/009_fundamentals_anual.sql para el porqué de no compartir tabla con la
+# trimestral). Se escribe completa, no derivada por sustitución de texto —
+# mismo criterio que el resto de este módulo.
+_SQL_FUNDAMENTALES_ANUAL = """
+INSERT INTO silver_fundamentals_anual (
+    ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
+    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
+    ingested_at, raw_batch_uuid
+) VALUES (
+    %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
+    %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
+    %(capital_contable)s, %(flujo_operativo)s, %(flujo_libre)s,
+    %(ingested_at)s, %(raw_batch_uuid)s
+)
+ON CONFLICT (ticker, period_end) DO UPDATE SET
+    ingresos_totales    = EXCLUDED.ingresos_totales,
+    utilidad_neta       = EXCLUDED.utilidad_neta,
+    utilidad_por_accion = EXCLUDED.utilidad_por_accion,
+    activo_total        = EXCLUDED.activo_total,
+    pasivo_total        = EXCLUDED.pasivo_total,
+    capital_contable    = EXCLUDED.capital_contable,
+    flujo_operativo     = EXCLUDED.flujo_operativo,
+    flujo_libre         = EXCLUDED.flujo_libre
+RETURNING (xmax = 0)
+"""
+
 _SQL_FINTECH = """
 INSERT INTO silver_fintech_dict (
     legal_name, commercial_name, ticker, sector, country, updated_at
@@ -160,6 +187,12 @@ def cargar_macro(cur: psycopg.Cursor, filas: list[MacroIndicator]) -> Carga:
 
 def cargar_fundamentales(cur: psycopg.Cursor, filas: list[Fundamental]) -> Carga:
     return _cargar(cur, _SQL_FUNDAMENTALES, [_dump(f) for f in filas])
+
+
+def cargar_fundamentales_anual(cur: psycopg.Cursor, filas: list[Fundamental]) -> Carga:
+    """Mismo modelo `Fundamental` que la trimestral — solo cambia la tabla
+    destino (ver `src/contracts/fundamentals.py`)."""
+    return _cargar(cur, _SQL_FUNDAMENTALES_ANUAL, [_dump(f) for f in filas])
 
 
 def cargar_fintech(cur: psycopg.Cursor, filas: list[FintechDictEntry]) -> Carga:

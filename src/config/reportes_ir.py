@@ -49,6 +49,16 @@ narrativa equivalente identificada todavía. Una vía no explorada: el listado
 "Eventos Relevantes" de la propia BMV (`docs-pub/eventemi/`), que sí mostró
 contenido para CEMEX/AMX/Alsea en una búsqueda exploratoria — pendiente de
 investigación si se decide perseguirlo.
+
+PENDIENTE (2026-08-25) — Actinver (`ACTINVRB.MX`, sumada al universo de
+precios/fundamentales ese día, ver `src/config/tickers.py`): no se resolvió
+si tiene narrativo en el portal de divulgación de la BMV. `.../perfil/ACTINVRB`
+devuelve 200 pero sin los enlaces `infin{bnc,gps,asg,som}` esperados —
+consistente con que esa ruta específica es SPA (a diferencia de
+`informacionfinanciera/{id}`, que sí es HTML estático) o con que falta el ID
+numérico correcto, que las otras 7 emisoras tuvieron que resolverse a mano
+contra el portal. No se inventa un ID: queda fuera de `EMISORAS_IR` hasta
+investigarlo en vivo.
 """
 
 from __future__ import annotations

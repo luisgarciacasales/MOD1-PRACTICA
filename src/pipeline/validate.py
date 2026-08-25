@@ -280,9 +280,9 @@ def procesar_lote(
             resultado = validar_precio(
                 {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
             )
-        elif source == "yahoo_fundamentals":
+        elif source in ("yahoo_fundamentals", "yahoo_fundamentals_anual"):
             resultado = validar_fundamental(
-                {k: v for k, v in crudo.items() if k != "source"}, batch_uuid
+                {k: v for k, v in crudo.items() if k != "source"}, batch_uuid, source=source
             )
         elif source == "inegi":
             if not indicador_vigente(crudo.get("indicador_id")):
@@ -336,6 +336,8 @@ def procesar_lote(
             carga += db.cargar_precios(cur, validos)
         elif source == "yahoo_fundamentals":
             carga += db.cargar_fundamentales(cur, validos)
+        elif source == "yahoo_fundamentals_anual":
+            carga += db.cargar_fundamentales_anual(cur, validos)
         elif source in ("banxico", "inegi"):
             carga += db.cargar_macro(cur, validos)
 

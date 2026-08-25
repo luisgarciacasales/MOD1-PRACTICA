@@ -183,6 +183,54 @@ ON CONFLICT (ticker, period_end) DO UPDATE SET
 RETURNING (xmax = 0)
 """
 
+# Misma consulta que _SQL_FUNDAMENTALES sobre la tabla anual (ver
+# sql/009_fundamentals_anual.sql) — se escribe completa en vez de derivarla por
+# sustitución de texto, mismo criterio que separar silver_fundamentals de
+# silver_market_prices en vez de parametrizar una única consulta genérica. El
+# YoY compara contra el ejercicio anterior con la misma ventana LATERAL >= 1
+# año, por si algún ejercicio faltara en el histórico.
+_SQL_FUNDAMENTALES_ANUAL = """
+INSERT INTO gold_fundamentals_anual (
+    ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
+    activo_total, pasivo_total, capital_contable, flujo_operativo, flujo_libre,
+    ingresos_yoy_pct, utilidad_neta_yoy_pct, ingested_at
+)
+SELECT s.ticker, s.period_end, s.ingresos_totales, s.utilidad_neta,
+       s.utilidad_por_accion, s.activo_total, s.pasivo_total,
+       s.capital_contable, s.flujo_operativo, s.flujo_libre,
+       CASE
+           WHEN prev.ingresos_totales IS NULL OR prev.ingresos_totales = 0 THEN NULL
+           ELSE 100.0 * (s.ingresos_totales / prev.ingresos_totales - 1)
+       END,
+       CASE
+           WHEN prev.utilidad_neta IS NULL OR prev.utilidad_neta = 0 THEN NULL
+           ELSE 100.0 * (s.utilidad_neta / prev.utilidad_neta - 1)
+       END,
+       NOW()
+FROM silver_fundamentals_anual s
+LEFT JOIN LATERAL (
+    SELECT p.ingresos_totales, p.utilidad_neta
+    FROM silver_fundamentals_anual p
+    WHERE p.ticker = s.ticker
+      AND p.period_end <= s.period_end - INTERVAL '1 year'
+    ORDER BY p.period_end DESC
+    LIMIT 1
+) prev ON TRUE
+ON CONFLICT (ticker, period_end) DO UPDATE SET
+    ingresos_totales      = EXCLUDED.ingresos_totales,
+    utilidad_neta         = EXCLUDED.utilidad_neta,
+    utilidad_por_accion   = EXCLUDED.utilidad_por_accion,
+    activo_total          = EXCLUDED.activo_total,
+    pasivo_total          = EXCLUDED.pasivo_total,
+    capital_contable      = EXCLUDED.capital_contable,
+    flujo_operativo       = EXCLUDED.flujo_operativo,
+    flujo_libre           = EXCLUDED.flujo_libre,
+    ingresos_yoy_pct      = EXCLUDED.ingresos_yoy_pct,
+    utilidad_neta_yoy_pct = EXCLUDED.utilidad_neta_yoy_pct,
+    ingested_at           = NOW()
+RETURNING (xmax = 0)
+"""
+
 
 def _contar(cur) -> tuple[int, int]:
     """Separa inserciones de actualizaciones con el `RETURNING (xmax = 0)`."""
@@ -209,6 +257,9 @@ def ejecutar() -> int:
 
         cur.execute(_SQL_FUNDAMENTALES)
         f_nuevas, f_act = _contar(cur)
+
+        cur.execute(_SQL_FUNDAMENTALES_ANUAL)
+        fa_nuevas, fa_act = _contar(cur)
         conexion.commit()
 
         cur.execute("""
@@ -232,11 +283,17 @@ def ejecutar() -> int:
         )
         con_fund_yoy = cur.fetchone()[0]
 
+        cur.execute(
+            "SELECT COUNT(*) FILTER (WHERE ingresos_yoy_pct IS NOT NULL) FROM gold_fundamentals_anual"
+        )
+        con_fund_anual_yoy = cur.fetchone()[0]
+
     print(f"{'TABLA':<24} {'NUEVAS':>8} {'ACTUALIZ':>9}")
     print("-" * 43)
     print(f"{'gold_market_prices':<24} {p_nuevas:>8} {p_act:>9}")
     print(f"{'gold_macro_indicators':<24} {m_nuevas:>8} {m_act:>9}")
     print(f"{'gold_fundamentals':<24} {f_nuevas:>8} {f_act:>9}")
+    print(f"{'gold_fundamentals_anual':<24} {fa_nuevas:>8} {fa_act:>9}")
     print("-" * 43)
     print()
     print("cobertura de las métricas derivadas:")
@@ -247,9 +304,10 @@ def ejecutar() -> int:
     print(f"  excess_return_pct {con_exc}   (frente al benchmark {BENCHMARK})")
     print(f"  beta_60d          {con_beta}")
     print(f"  yoy_change_pct    {con_yoy}   (macro)")
-    print(f"  ingresos_yoy_pct  {con_fund_yoy}   (fundamentales)")
+    print(f"  ingresos_yoy_pct  {con_fund_yoy}   (fundamentales trimestrales)")
+    print(f"  ingresos_yoy_pct  {con_fund_anual_yoy}   (fundamentales anuales)")
     print()
-    print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas}  "
+    print(f"[transform] filas_nuevas = {p_nuevas + m_nuevas + f_nuevas + fa_nuevas}  "
           f"(reprocesar debe dar 0 — criterio PRD §8)")
     return 0
 

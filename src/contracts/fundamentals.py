@@ -1,13 +1,20 @@
-"""Contrato de estados financieros trimestrales (ampliación 14-ago-2026).
+"""Contrato de estados financieros, trimestrales y anuales (ampliación
+14-ago-2026, extendida 25-ago-2026).
 
 Mismo espíritu que `MarketPrice`: llega ya tabulado, así que el contrato es de
 tipos y coherencia, no semántico. La diferencia es que aquí **todos los campos
 financieros son opcionales**: yfinance trae huecos NaN dispersos entre
-trimestres y emisoras (confirmado contra GFNORTEO.MX — ni un solo trimestre
+periodos y emisoras (confirmado contra GFNORTEO.MX — ni un solo trimestre
 trae los ocho campos completos). Exigirlos todos habría mandado el corpus
 entero a cuarentena. Lo único que se exige es que AL MENOS UNO traiga valor;
 una fila sin ningún dato no aporta nada y el contrato la rechaza como
 `MISSING_FIELD`.
+
+Un solo modelo sirve para trimestral y anual — la FORMA de la fila (mismos
+ocho campos financieros) es idéntica; lo único que cambia es a qué tabla
+Silver aterriza, decisión que toma el llamador (`validate.py`), no el
+contrato. `validar_fundamental` recibe `source` para que la cuarentena
+distinga de qué serie vino cada rechazo, igual que cualquier otra fuente.
 """
 
 from __future__ import annotations
@@ -22,7 +29,9 @@ from src.contracts.rejections import DeadLetter, RejectionReason
 
 
 class Fundamental(BaseModel):
-    """Fila de `silver_fundamentals`. Única por `(ticker, period_end)`."""
+    """Fila de `silver_fundamentals` (trimestral) o `silver_fundamentals_anual`
+    (anual, ver `validar_fundamental`). Única por `(ticker, period_end)` en
+    cada tabla — no hay colisión entre ambas porque viven separadas."""
 
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
@@ -61,14 +70,18 @@ class Fundamental(BaseModel):
         return self
 
 
-def validar_fundamental(crudo: dict[str, Any], batch_uuid: UUID) -> Fundamental | DeadLetter:
-    """Contrato de estados financieros trimestrales."""
+def validar_fundamental(
+    crudo: dict[str, Any], batch_uuid: UUID, *, source: str = "yahoo_fundamentals"
+) -> Fundamental | DeadLetter:
+    """Contrato de estados financieros. `source` distingue trimestral
+    (`yahoo_fundamentals`) de anual (`yahoo_fundamentals_anual`) solo para
+    etiquetar el rechazo — el contrato en sí es idéntico para ambos."""
     try:
         return Fundamental(raw_batch_uuid=batch_uuid, **crudo)
     except ValidationError as exc:
         return DeadLetter(
             guid=None,
-            source="yahoo_fundamentals",
+            source=source,
             raw_payload=_serializable(crudo),
             rejection_reason=_motivo_estructurado(exc),
             rejection_detail=_resumir(exc),

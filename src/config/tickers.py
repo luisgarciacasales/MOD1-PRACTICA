@@ -22,9 +22,30 @@ aquí solo vive la tabla que traduce ese sector a un ticker que sí cotiza.
 # quedaba corto. Se eligió profundizar en el sector en lugar de ampliar a todo el
 # IPC, para no diluir el foco.
 #
+# AMPLIACIÓN (2026-08-25, roadmap F1): se evaluaron cinco candidatos más del
+# sector para el mismo objetivo — profundizar financiero, no ampliar a todo el
+# IPC. Verificado contra Yahoo el mismo día:
+#
+#   ACTINVRB.MX (Actinver, casa de bolsa)     → OK, se incorpora (ver abajo)
+#   FINDEP.MX   (Financiera Independencia)    → datos existen pero 38/66
+#                                                sesiones sin operar (58%) en
+#                                                los últimos 3 meses — ticker
+#                                                fantasma, descartado
+#   VALUEGFO.MX (Value Grupo Financiero)      → volumen 0 en 66/66 sesiones —
+#                                                no opera en la práctica,
+#                                                descartado
+#   UNIFINA.MX  (Unifin Financiera)           → sin datos en Yahoo, consistente
+#                                                con su default de 2023
+#   CREAL.MX    (Crédito Real)                → sin datos en Yahoo, consistente
+#                                                con su default/concurso
+#
+# Conclusión: el universo financiero líquido de BMV está prácticamente
+# saturado. No repetir esta búsqueda sin evidencia nueva de que alguno de los
+# cuatro descartados volvió a cotizar con volumen real.
+#
 # Nota sobre el PRD §9: recomienda "lista de tickers acotada (8-12)" como
-# mitigación del rate limiting de Yahoo. Con 13 se excede por poco; la pausa de
-# 0,6 s entre solicitudes de `src/sources/market.py` sigue siendo la defensa.
+# mitigación del rate limiting de Yahoo. Ya se excedía con 13; con 14 la pausa
+# de 0,6 s entre solicitudes de `src/sources/market.py` sigue siendo la defensa.
 TICKERS_PRIORITARIOS: tuple[str, ...] = (
     # --- Banca y servicios financieros ---
     "GFNORTEO.MX",   # Grupo Financiero Banorte
@@ -34,6 +55,7 @@ TICKERS_PRIORITARIOS: tuple[str, ...] = (
     "GFINBURO.MX",   # Grupo Financiero Inbursa
     "BOLSAA.MX",     # Bolsa Mexicana de Valores (la operadora, no el índice)
     "Q.MX",          # Quálitas Controladora — aseguradora
+    "ACTINVRB.MX",   # Actinver — casa de bolsa / gestión de activos (2026-08-25)
     # --- Matrices extranjeras vía SIC (leer la advertencia de abajo) ---
     "BBVA.MX",       # Banco Bilbao Vizcaya Argentaria S.A. (matriz de BBVA México)
     "SANN.MX",       # Banco Santander S.A. (matriz de Santander México)

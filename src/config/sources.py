@@ -20,6 +20,7 @@ SourceId = Literal[
     "finnovista",
     "yahoo_finance",
     "yahoo_fundamentals",
+    "yahoo_fundamentals_anual",
     "banxico",
     "inegi",
 ]
@@ -108,6 +109,10 @@ FUENTES: tuple[Fuente, ...] = (
     # Se empezó por las cifras estructuradas (mismo yfinance, sin scraper
     # nuevo); el reporte narrativo de cada empresa queda pendiente de evaluar.
     Fuente("yahoo_fundamentals", "Yahoo Finance — estados financieros trimestrales", "mercado", None),
+    # AMPLIACIÓN 2026-08-25 (roadmap F1) — mismos tres estados, histórico
+    # anual: 5 años frente al tope duro de 7 trimestres de la fuente de
+    # arriba. Ver src/sources/fundamentales.py (ingerir_anual).
+    Fuente("yahoo_fundamentals_anual", "Yahoo Finance — estados financieros anuales", "mercado", None),
     Fuente("banxico", "BANXICO SIE", "mercado", None),
     # AMPLIACIÓN 2026-08-04 — actividad económica real: IGAE, desempleo y
     # confianza del consumidor, que BANXICO no publica y que anticipan la

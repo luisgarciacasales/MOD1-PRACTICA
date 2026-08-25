@@ -58,9 +58,14 @@ ADAPTADORES: dict[str, Callable[[], ResultadoFuente]] = {
     "banxico": banxico.ingerir,
     "inegi": inegi.ingerir,
     "yahoo_finance": market.ingerir,
-    # Al final: son 14 tickers × 3 estados financieros, tan lento como
+    # Al final: son 16 tickers × 3 estados financieros, tan lento como
     # yahoo_finance y por el mismo motivo (rate limit de yfinance).
     "yahoo_fundamentals": fundamentales.ingerir,
+    # Misma llamada, histórico anual en vez de trimestral (ampliación
+    # 25-ago-2026, roadmap F1 — ver docstring de src/sources/fundamentales.py).
+    # Va justo después porque comparte ticker y pausa antirrate-limit; separarla
+    # del final del batch no aporta nada.
+    "yahoo_fundamentals_anual": fundamentales.ingerir_anual,
 }
 
 
