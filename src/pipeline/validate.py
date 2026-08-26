@@ -10,6 +10,13 @@ aguas abajo, jamás reescribiendo el lote original (PRD §6.1).
     docker compose exec -T app python -m src.pipeline.validate
     docker compose exec -T app python -m src.pipeline.validate --date 2026-08-02
     docker compose exec -T app python -m src.pipeline.validate --source financiero
+    docker compose exec -T app python -m src.pipeline.validate --todo
+
+Por defecto solo procesa lotes que no estén en `bronze_lotes_procesados`: Bronze
+solo crece, y revalidar lo ya cargado no cambia Silver — solo cuesta. `--todo`
+ignora ese registro y rehace la pasada completa, que es lo que hay que correr
+tras cambiar un contrato (Silver se reconstruye desde Bronze) y lo que usa el
+check de idempotencia de `verify`.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ from src.contracts import (
     validar_precio,
 )
 from src.pipeline import db
-from src.pipeline.bronze import leer_lote, listar_lotes
+from src.pipeline.bronze import leer_lote, leer_metadata, listar_lotes
 from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_tickers
 
 FUENTES_NOTICIAS = {
@@ -354,6 +361,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Solo los lotes de esta fecha (YYYY-MM-DD).")
     parser.add_argument("--source", dest="fuentes", action="append",
                         help="Solo estas fuentes; repetible.")
+    parser.add_argument("--todo", action="store_true",
+                        help="Revalida también los lotes ya procesados "
+                             "(reconstrucción de Silver tras un cambio de contrato).")
     args = parser.parse_args(argv)
 
     fecha = date.fromisoformat(args.fecha) if args.fecha else None
@@ -361,7 +371,7 @@ def main(argv: list[str] | None = None) -> int:
 
     lotes = listar_lotes(raiz, fecha=fecha)
     if args.fuentes:
-        lotes = [l for l in lotes if leer_lote(l)[0]["source"] in set(args.fuentes)]
+        lotes = [l for l in lotes if leer_metadata(l)["source"] in set(args.fuentes)]
     if not lotes:
         print("[validate] no hay lotes que procesar")
         return 1
@@ -377,18 +387,36 @@ def main(argv: list[str] | None = None) -> int:
         with conexion.cursor() as cur:
             # El diccionario Finnovista va primero: las noticias lo necesitan
             # para reconocer fintechs como entidades identificables.
-            lotes_fintech = [l for l in lotes if leer_lote(l)[0]["source"] == "finnovista"]
+            metadatos = {ruta: leer_metadata(ruta) for ruta in lotes}
+
+            # El diccionario Finnovista queda FUERA del salto: no se carga por
+            # sus filas sino por los nombres que devuelve, que las noticias
+            # necesitan para reconocer fintechs como entidades. Saltarlo dejaría
+            # `fintechs` vacío y las noticias nuevas dejarían de etiquetarlas.
+            lotes_fintech = [r for r in lotes if metadatos[r]["source"] == "finnovista"]
             nuevas_fintech, fintechs = _cargar_fintechs(cur, lotes_fintech)
             if lotes_fintech:
                 print(f"[validate] finnovista: {len(fintechs)} entradas ({nuevas_fintech} nuevas)")
 
+            ya_procesados = set() if args.todo else db.lotes_procesados(cur)
+            saltados = 0
+
             for ruta in lotes:
-                meta = leer_lote(ruta)[0]
+                meta = metadatos[ruta]
                 source = meta["source"]
                 if source == "finnovista":
                     continue
 
+                batch_uuid = UUID(meta["batch_uuid"])
+                if batch_uuid in ya_procesados:
+                    saltados += 1
+                    continue
+
                 carga, rechazos, motivos, omitidas = procesar_lote(cur, ruta, fintechs=fintechs)
+                db.marcar_lote_procesado(
+                    cur, batch_uuid, source=source, ruta=str(ruta),
+                    carga=carga, rechazos=rechazos,
+                )
                 omitidas_total += omitidas
                 resumen.setdefault(source, db.Carga())
                 resumen[source] += carga
@@ -400,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
         conexion.commit()
+
+    if saltados:
+        print(f"[validate] {saltados} lotes ya procesados, saltados "
+              f"(usa --todo para revalidarlos)")
 
     # --- Resumen ------------------------------------------------------------
     print()
@@ -426,8 +458,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {motivo:<18} {n}")
 
     print()
-    print(f"[validate] filas_nuevas = {total_nuevas}  "
-          f"(reprocesar el mismo lote debe dar 0 — criterio PRD §8)")
+    if args.todo:
+        print(f"[validate] filas_nuevas = {total_nuevas}  "
+              f"(reprocesar el mismo lote debe dar 0 — criterio PRD §8)")
+    else:
+        # Sin --todo este número NO demuestra idempotencia: los lotes ya
+        # cargados ni siquiera se tocaron, así que un 0 aquí puede significar
+        # "el UPSERT no duplicó" o "no se procesó nada". El criterio del §8 se
+        # comprueba con --todo, que es lo que invoca `verify`.
+        print(f"[validate] filas_nuevas = {total_nuevas} sobre lotes nuevos  "
+              f"(la idempotencia del §8 se comprueba con --todo)")
     return 0
 
 

@@ -12,6 +12,7 @@ sin un SELECT previo que además sería susceptible de carreras.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 import psycopg
 from psycopg.rows import tuple_row
@@ -221,6 +222,50 @@ def cargar_dead_letters(cur: psycopg.Cursor, filas: list[DeadLetter]) -> int:
         datos["rejection_reason"] = fila.rejection_reason.value
         cur.execute(_SQL_DEAD_LETTER, datos)
     return len(filas)
+
+
+def lotes_procesados(cur: psycopg.Cursor) -> set[UUID]:
+    """`batch_uuid` de los lotes de Bronze ya validados.
+
+    Lo consume `validate` para saltarse lo que ya cargó. Se lee de una vez en
+    vez de consultar lote a lote: son cientos de UUID, caben de sobra en
+    memoria, y así la decisión de saltar no cuesta una ida a la base por lote.
+    """
+    cur.execute("SELECT batch_uuid FROM bronze_lotes_procesados")
+    return {fila[0] for fila in cur.fetchall()}
+
+
+def marcar_lote_procesado(
+    cur: psycopg.Cursor,
+    batch_uuid: UUID,
+    *,
+    source: str,
+    ruta: str,
+    carga: Carga,
+    rechazos: int,
+) -> None:
+    """Deja constancia de que el lote ya se validó.
+
+    Va en la misma transacción que la carga, así que un fallo posterior lo
+    deshace junto con las filas: no puede quedar marcado un lote cuyos datos no
+    llegaron a Silver.
+
+    El UPSERT es para `--todo`, que revalida lotes ya marcados y debe refrescar
+    los conteos en vez de reventar por clave duplicada.
+    """
+    cur.execute(
+        """
+        INSERT INTO bronze_lotes_procesados (
+            batch_uuid, source, ruta, filas_nuevas, filas_actualizadas, rechazos
+        ) VALUES (%s, %s, %s, %s, %s, %s)
+        ON CONFLICT (batch_uuid) DO UPDATE SET
+            procesado_at       = NOW(),
+            filas_nuevas       = EXCLUDED.filas_nuevas,
+            filas_actualizadas = EXCLUDED.filas_actualizadas,
+            rechazos           = EXCLUDED.rechazos
+        """,
+        (batch_uuid, source, ruta, carga.nuevas, carga.actualizadas, rechazos),
+    )
 
 
 # --- Interno ---------------------------------------------------------------

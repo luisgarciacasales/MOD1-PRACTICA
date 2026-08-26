@@ -103,6 +103,16 @@ def leer_lote(ruta: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     return metadata, registros
 
 
+def leer_metadata(ruta: Path) -> dict[str, Any]:
+    """Solo el `metadata.json` del lote, sin cargar el payload.
+
+    Para decidir si un lote toca procesarlo basta con `source` y `batch_uuid`;
+    `leer_lote` traería además los registros —hasta 8.520 en un lote de
+    `yahoo_finance`— para leer dos campos.
+    """
+    return json.loads((ruta / "metadata.json").read_text(encoding="utf-8"))
+
+
 def verificar_checksum(ruta: Path) -> bool:
     """¿El payload sigue siendo el que se escribió? Detecta corrupción o
     manipulación de Bronze, que por contrato nunca debería cambiar."""

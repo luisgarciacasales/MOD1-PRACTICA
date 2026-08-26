@@ -42,3 +42,8 @@ venv/
 .envrc
 .direnv/
 .DS_Store
+
+# Instalación local de Claude Code (herramienta del entorno, no del proyecto)
+node_modules/
+package.json
+package-lock.json

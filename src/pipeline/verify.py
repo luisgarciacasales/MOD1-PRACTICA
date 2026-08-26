@@ -230,6 +230,14 @@ def check_idempotencia(cur) -> Check:
 
     Se comparan los COUNT antes y después en vez de fiarse del resumen que
     imprime la etapa: el criterio del §8 es sobre el estado de las tablas.
+
+    Va con `--todo` a propósito. Desde que `validate` salta los lotes ya
+    registrados en `bronze_lotes_procesados`, una llamada sin flags no tocaría
+    ni un lote y el check pasaría por no hacer nada — demostrando que el UPSERT
+    es idempotente exactamente igual que si no existiera. `--todo` fuerza la
+    revalidación completa, que es la única forma de que este check signifique
+    algo. Es el check más lento del conjunto por esa razón; `--saltar-idempotencia`
+    existe para cuando no se quiere pagarlo.
     """
     from src.pipeline import validate
 
@@ -239,7 +247,7 @@ def check_idempotencia(cur) -> Check:
     salida_previa = sys.stdout
     try:
         sys.stdout = open("/dev/null", "w")  # noqa: SIM115
-        validate.main([])
+        validate.main(["--todo"])
     except SystemExit:
         pass
     finally:
