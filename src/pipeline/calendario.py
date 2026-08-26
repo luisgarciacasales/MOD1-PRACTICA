@@ -30,7 +30,18 @@ from functools import lru_cache
 # y se cachea) y evita que el mismo bug reaparezca la próxima vez que se
 # extienda el histórico de otro ticker.
 _DESDE = date(1990, 1, 1)
-_HASTA = date(2030, 12, 31)
+
+# Auditoría del 26-ago-2026 (a propósito, tras el bug de _DESDE): _HASTA
+# era OTRO literal fijo (2030-12-31). No falla en silencio como _DESDE —
+# `siguiente_dia_habil`/`es_dia_habil` ya manejan el caso "fuera de rango"
+# devolviendo None, y `correlate.py` lo cuenta como "fuera del calendario"
+# en vez de fabricar una correlación falsa— pero sigue siendo una bomba de
+# tiempo: en 2031 el pipeline empezaría a descartar TODA noticia futura sin
+# ningún error de configuración que apunte a la causa. Mismo criterio que
+# `VENTANA_HISTORICA_ANIOS` (src/config/tickers.py): calculado relativo a
+# hoy, no un literal absoluto, para que nunca vuelva a hacer falta acordarse
+# de extenderlo a mano.
+_MARGEN_ADELANTE_ANIOS = 5
 
 
 @lru_cache(maxsize=1)
@@ -40,8 +51,10 @@ def dias_habiles() -> tuple[date, ...]:
 
     from src.config import get_settings
 
+    hasta = date(date.today().year + _MARGEN_ADELANTE_ANIOS, 12, 31)
+
     calendario = mcal.get_calendar(get_settings().market_calendar)
-    return tuple(d.date() for d in calendario.valid_days(_DESDE, _HASTA))
+    return tuple(d.date() for d in calendario.valid_days(_DESDE, hasta))
 
 
 def es_dia_habil(f: date) -> bool:
