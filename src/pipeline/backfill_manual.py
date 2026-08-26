@@ -74,10 +74,18 @@ def _procesar_archivo(ruta: Path, nombre: str) -> dict | None:
     # vivo de reportes_ir, el propio título ancla la emisora ("Grupo
     # Financiero Banorte") y la extracción léxica (ALIAS_EMISORAS) ya la
     # reconoce por nombre — mismo mecanismo, un solo camino de extracción.
+    # El contrato exige una URL http(s) real (RejectionReason.INVALID_URL
+    # con cualquier otro esquema — descubierto al validar el primer lote).
+    # Se reconstruye la ruta que el propio Banorte usa para sus reportes
+    # automáticos (misma carpeta que _localizar_banorte ya resuelve en
+    # vivo): no es una URL inventada, es la ubicación real de donde salió
+    # el PDF que el usuario descargó a mano.
+    url = f"https://investors.banorte.com/quarterly-results/es/{anio}/{trimestre}T{aa:02d}/{ruta.name}"
+
     return {
         "title": f"Reporte trimestral — {nombre} ({trimestre}T{aa})",
         "summary": _desde_el_resumen(texto_completo),
-        "link": f"manual://banorte_historico/{ruta.name}",
+        "link": url,
         "published": fecha.isoformat(),
         "source": "reportes_ir",
     }
