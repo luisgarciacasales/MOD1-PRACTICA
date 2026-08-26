@@ -8,8 +8,7 @@ headless — mismo tipo de obstáculo que ya se documentó para `bmv_eventos`.
 En vez de invertir en Playwright/Selenium, el usuario descarga los PDF a
 mano desde el navegador (donde el JS sí renderiza) y los coloca en una
 carpeta local; este script los convierte en un lote Bronze más, reutilizando
-EXACTAMENTE la misma extracción de texto que `reportes_ir`
-(`_extraer_texto_pdf`, `_desde_el_resumen`, `_fecha_de_texto`) — mismo
+la misma extracción de texto que `reportes_ir` (`_desde_el_resumen`) — mismo
 contrato (`SilverNews` vía `source="reportes_ir"`), mismo `enrich`, mismo
 `correlate`. No es una fuente nueva: es el mismo `reportes_ir` con un
 localizador manual en vez de uno que raspa una página.
@@ -25,12 +24,16 @@ sin instrucciones adicionales. Un archivo con otro nombre se ignora con
 aviso en `fallidos`, no rompe el lote completo (mismo criterio fail-soft que
 el resto del pipeline).
 
-Fecha de publicación: se intenta primero extraer la fecha real del propio
-texto del PDF (`_fecha_de_texto`, el mismo dateline que ya usa reportes_ir
-en vivo). Si el PDF no trae una fecha reconocible, se aproxima como
-`fin_de_trimestre + 45 días` — mismo rezago declarado que ya usa
-`_SQL_VALUATION` para el mismo motivo (un trimestre no se conoce el día que
-cierra): una aproximación declarada, no fingida.
+Fecha de publicación: **NO** se usa `_fecha_de_texto` (bug encontrado el
+25-ago-2026, ver el docstring de `_localizar_banorte` en reportes_ir.py):
+en los reportes de Banorte esa función siempre encuentra "Información
+Financiera al {DD} de {MES} de {AAAA}" —la fecha de CORTE del periodo, no
+la de publicación— porque aparece en la segunda línea del documento, antes
+que cualquier dateline real. Usarla habría reintroducido justo el
+lookahead bias que se quiso evitar. En su lugar, `fecha_aproximada_de_
+trimestre` (reportes_ir.py) calcula `fin_de_trimestre + 45 días` a partir
+del propio nombre de archivo — determinista, sin depender de qué texto
+aparezca primero en el PDF.
 
     docker compose exec -T app python -m src.pipeline.backfill_manual \
         --dir /app/data/manual_dropzone/banorte_historico \
@@ -47,21 +50,9 @@ from pathlib import Path
 
 from src.config import get_settings
 from src.pipeline.bronze import escribir_lote
-from src.sources.reportes_ir import _desde_el_resumen, _fecha_de_texto
+from src.sources.reportes_ir import _desde_el_resumen, fecha_aproximada_de_trimestre
 
 _PATRON_ARCHIVO = re.compile(r"^(\d)T(\d{2})\.pdf$", re.IGNORECASE)
-
-# Mes de cierre de cada trimestre calendario — el día se calcula con
-# calendar.monthrange en vez de hardcodear 30/31.
-_MES_CIERRE = {1: 3, 2: 6, 3: 9, 4: 12}
-
-
-def _fin_de_trimestre(anio: int, trimestre: int) -> date:
-    import calendar
-
-    mes = _MES_CIERRE[trimestre]
-    ultimo_dia = calendar.monthrange(anio, mes)[1]
-    return date(anio, mes, ultimo_dia)
 
 
 def _procesar_archivo(ruta: Path, nombre: str) -> dict | None:
@@ -70,7 +61,7 @@ def _procesar_archivo(ruta: Path, nombre: str) -> dict | None:
         return None
     trimestre, aa = int(m.group(1)), int(m.group(2))
     anio = 2000 + aa
-    fin_trimestre = _fin_de_trimestre(anio, trimestre)
+    fecha = fecha_aproximada_de_trimestre(anio, trimestre)
 
     # reportes_ir._extraer_texto_pdf espera una URL remota (hace
     # requests.get); para un archivo ya local en disco se lee directo con
@@ -78,8 +69,6 @@ def _procesar_archivo(ruta: Path, nombre: str) -> dict | None:
     texto_completo = _texto_de_pdf_local(ruta)
     if not texto_completo:
         return None
-
-    fecha = _fecha_de_texto(texto_completo) or _con_rezago(fin_trimestre)
 
     # El ticker no se inyecta como campo aparte: igual que en la ingesta en
     # vivo de reportes_ir, el propio título ancla la emisora ("Grupo
@@ -103,12 +92,6 @@ def _texto_de_pdf_local(ruta: Path) -> str:
     lector = PdfReader(str(ruta))
     paginas = lector.pages[:12]
     return "\n".join(p.extract_text() or "" for p in paginas).strip()
-
-
-def _con_rezago(fin_trimestre: date) -> date:
-    from datetime import timedelta
-
-    return fin_trimestre + timedelta(days=45)
 
 
 def main(argv: list[str] | None = None) -> int:

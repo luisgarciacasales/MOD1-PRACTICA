@@ -75,6 +75,28 @@ _PATRON_FECHA_ES = re.compile(
     r"(\d{1,2})\s+de\s+(" + "|".join(_MESES_ES) + r")\s+de\s+(\d{4})", re.IGNORECASE
 )
 
+_MES_CIERRE_TRIMESTRE = {1: 3, 2: 6, 3: 9, 4: 12}
+_REZAGO_PUBLICACION_DIAS = 45
+
+
+def fecha_aproximada_de_trimestre(anio: int, trimestre: int) -> date:
+    """Fin de trimestre calendario + `_REZAGO_PUBLICACION_DIAS` — mismo
+    rezago documentado en `_SQL_VALUATION` (transform.py) para el mismo
+    motivo: un trimestre no se conoce el día que cierra.
+
+    Determinista a partir del propio código de trimestre (`{n}T{aa}`), sin
+    depender de qué fecha aparezca primero en el texto del PDF. Usada por
+    `_localizar_banorte` (ver el porqué en su docstring: `_fecha_de_texto`
+    encontraba la fecha de CORTE del periodo, no la de publicación) y por
+    `src.pipeline.backfill_manual` para el histórico descargado a mano.
+    """
+    import calendar
+    from datetime import timedelta
+
+    mes = _MES_CIERRE_TRIMESTRE[trimestre]
+    ultimo_dia = calendar.monthrange(anio, mes)[1]
+    return date(anio, mes, ultimo_dia) + timedelta(days=_REZAGO_PUBLICACION_DIAS)
+
 
 def ingerir() -> ResultadoFuente:
     """Descarga el reporte narrativo más reciente de cada emisora piloto.
@@ -149,7 +171,7 @@ def _localizar_pdf(emisora: EmisoraIR) -> tuple[str | None, date | None]:
     sopa = BeautifulSoup(resp.text, "lxml")
 
     if emisora.ticker == "GFNORTEO.MX":
-        return _localizar_banorte(sopa, emisora.listado_url), None
+        return _localizar_banorte(sopa, emisora.listado_url)
     if emisora.ticker == "BOLSAA.MX":
         return _localizar_bolsaa(sopa, emisora.listado_url), None
     # Regional, BBAJIOO, GENTERA, GFINBURO y Q vía el portal de la BMV — las
@@ -158,11 +180,23 @@ def _localizar_pdf(emisora: EmisoraIR) -> tuple[str | None, date | None]:
     return _localizar_bmv_informacionfinanciera(sopa, emisora.listado_url)
 
 
-def _localizar_banorte(sopa: BeautifulSoup, base_url: str) -> str | None:
+def _localizar_banorte(sopa: BeautifulSoup, base_url: str) -> tuple[str | None, date | None]:
     """El comunicado narrativo vive en `es/{año}/{n}T{aa}/`, con nombre de
     archivo que empieza EXACTAMENTE con el código de trimestre
     (`2T26.pdf`, `2T26_vc_.pdf`...); los anexos, riesgos y transcripciones
-    casan con la misma carpeta pero se excluyen por nombre."""
+    casan con la misma carpeta pero se excluyen por nombre.
+
+    BUG encontrado el 25-ago-2026 al desplegar el backfill histórico: antes
+    devolvía `(url, None)` y dejaba la fecha a `_fecha_de_texto`, que en
+    Banorte SIEMPRE encuentra "Información Financiera al {DD} de {MES} de
+    {AAAA}" —la fecha de CORTE del periodo, no de publicación— porque
+    aparece en la segunda línea del documento, antes que cualquier dateline
+    real. Eso puso `published_at = fin_de_trimestre` en el registro ya en
+    producción (2T26, ingerido 15-ago-2026) — lookahead bias: el mercado no
+    conocía esos resultados el día que cerró el trimestre. Ahora la fecha
+    sale del propio nombre de archivo (`fecha_aproximada_de_trimestre`,
+    mismo rezago de 45 días que `_SQL_VALUATION`), determinista y sin
+    depender de qué texto aparezca primero en el PDF."""
     mejor: tuple[tuple[int, int], str] | None = None
     for a in sopa.find_all("a", href=True):
         m = re.search(
@@ -178,7 +212,10 @@ def _localizar_banorte(sopa: BeautifulSoup, base_url: str) -> str | None:
         clave = (int(anio), int(qnum))
         if mejor is None or clave > mejor[0]:
             mejor = (clave, urljoin(base_url, a["href"]))
-    return mejor[1] if mejor else None
+    if mejor is None:
+        return None, None
+    (anio, qnum), url = mejor
+    return url, fecha_aproximada_de_trimestre(anio, qnum)
 
 
 def _localizar_bolsaa(sopa: BeautifulSoup, base_url: str) -> str | None:
