@@ -17,9 +17,19 @@ import bisect
 from datetime import date, timedelta
 from functools import lru_cache
 
-# Ventana amplia: cubre de sobra el histórico de 2 años y deja margen hacia
-# adelante para el desplazamiento de 5 días hábiles.
-_DESDE = date(2020, 1, 1)
+# Bug encontrado el 25/26-ago-2026 al extender el histórico de precios de
+# GFNORTEO.MX hasta 2000: con _DESDE fijo en 2020-01-01, cualquier noticia
+# anterior a esa fecha caía fuera de `dias_habiles()` por completo —
+# `bisect_right` sobre una lista que empieza en 2020 devuelve el índice 0
+# para CUALQUIER fecha anterior, así que `siguiente_dia_habil` contestaba
+# "2 de enero de 2020" para una noticia de 2018, sin error ni aviso. 25
+# reportes históricos de Banorte (2018-2019) correlacionaron contra un
+# precio de año y medio después antes de detectarse. _DESDE ahora cubre
+# desde antes de que exista cualquier serie de precios plausible en el
+# proyecto — más margen no cuesta nada (el calendario se construye una vez
+# y se cachea) y evita que el mismo bug reaparezca la próxima vez que se
+# extienda el histórico de otro ticker.
+_DESDE = date(1990, 1, 1)
 _HASTA = date(2030, 12, 31)
 
 
