@@ -40,6 +40,20 @@ TICKERS_VALIDOS = frozenset(ALIAS_EMISORAS)
 # Horizonte del cambio acumulado post-noticia, en días de cotización (PRD §5.3).
 HORIZONTE_DIAS = 5
 
+# Bug encontrado el 25-ago-2026 al correlacionar el backfill histórico de
+# Banorte (reportes desde 2018): `WHERE date >= siguiente ORDER BY date
+# LIMIT 1` no distingue "el mercado no ha cerrado todavía" (siguiente es
+# futuro, sin precio aún) de "no tenemos historia de precios tan atrás"
+# (siguiente es de 2018, la serie empieza en 2024-07-31) — en ambos casos
+# la fila más cercana con `date >= siguiente` puede estar a AÑOS de
+# distancia, y la consulta la trataba como una correlación válida. 25 de
+# 29 reportes de Banorte "correlacionaron" contra el precio del
+# 2024-07-31 con retorno NULL. Un vencimiento de mercado real (feriados
+# consecutivos, cierre extendido) nunca separa `siguiente` de su precio
+# real por más que unos pocos días; una brecha mayor es siempre síntoma de
+# falta de historia, no de calendario.
+MAX_DIAS_BRECHA_PRECIO = 10
+
 _SQL_NOTICIAS = """
 SELECT g.guid,
        (g.published_at AT TIME ZONE 'America/Mexico_City')::date AS news_date,
@@ -223,6 +237,13 @@ def ejecutar(*, fecha: date | None) -> int:
                     # Se reintentará en el batch siguiente, cuando exista el
                     # precio; por eso no se marca nada como procesado.
                     motivos["sin precio posterior todavía"] += 1
+                    continue
+
+                if (precio["date"] - siguiente).days > MAX_DIAS_BRECHA_PRECIO:
+                    # No es que el mercado no haya cerrado: es que no hay
+                    # historia de precios tan atrás (ver MAX_DIAS_BRECHA_PRECIO).
+                    # Distinto motivo, mismo "no se marca nada como procesado".
+                    motivos["fuera de la ventana de precios disponible"] += 1
                     continue
 
                 price_date = precio["date"]
