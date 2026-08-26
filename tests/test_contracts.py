@@ -32,10 +32,10 @@ BATCH = uuid4()
 
 def noticia(**overrides) -> dict:
     base = {
-        "source": "economista",
+        "source": "financiero",
         "title": "Grupo Financiero Banorte reporta utilidades récord",
         "content": "La emisora informó un incremento de 12% en su utilidad neta.",
-        "url": "https://www.eleconomista.com.mx/mercados/banorte-utilidades",
+        "url": "https://www.elfinanciero.com.mx/mercados/banorte-utilidades",
         "published_at": "2026-07-31T21:30:00+00:00",
         "tickers": ["GFNORTE"],
     }
@@ -127,7 +127,6 @@ def test_macro_sin_ticker_pasa_con_bypass():
     """Criterio del §8: ≥1 noticia macro sin ticker en silver_news."""
     r = validar_noticia(
         noticia(
-            source="economista",
             title="Banxico mantiene la tasa objetivo en 7.25%",
             content=(
                 "La Junta de Gobierno del Banco de México decidió mantener sin "
@@ -166,12 +165,12 @@ def test_bloomberg_refuerza_con_un_solo_termino():
     """La fuente sí baja el umbral de 2 términos a 1: es señal reforzadora."""
     texto = "El banco central discutió el rumbo de la política monetaria."
     assert es_macro("bloomberg", texto) is True
-    assert es_macro("economista", texto) is False
+    assert es_macro("financiero", texto) is False
 
 
 def test_una_sola_mencion_macro_no_basta():
     """El umbral evita que cualquier huérfana se cuele por decir 'inflación'."""
-    assert es_macro("economista", "La inflación de costos afectó al restaurante") is False
+    assert es_macro("financiero", "La inflación de costos afectó al restaurante") is False
 
 
 def test_noticia_con_ticker_no_marca_bypass_falsamente():
@@ -192,11 +191,11 @@ def test_guid_es_estable():
 
 def test_guid_ignora_la_zona_horaria():
     """Mismo instante en dos husos ⇒ mismo guid, o la idempotencia se rompe."""
-    utc = calcular_guid("economista", "https://x.mx/a", datetime(2026, 7, 31, 21, 30, tzinfo=UTC))
+    utc = calcular_guid("financiero", "https://x.mx/a", datetime(2026, 7, 31, 21, 30, tzinfo=UTC))
     from datetime import timedelta, timezone
 
     cdmx = calcular_guid(
-        "economista",
+        "financiero",
         "https://x.mx/a",
         datetime(2026, 7, 31, 15, 30, tzinfo=timezone(timedelta(hours=-6))),
     )
@@ -205,7 +204,7 @@ def test_guid_ignora_la_zona_horaria():
 
 def test_guid_cambia_con_la_url():
     a = validar_noticia(noticia(), BATCH)
-    b = validar_noticia(noticia(url="https://www.eleconomista.com.mx/otra"), BATCH)
+    b = validar_noticia(noticia(url="https://www.elfinanciero.com.mx/otra"), BATCH)
     assert isinstance(a, SilverNews) and isinstance(b, SilverNews)
     assert a.guid != b.guid
 

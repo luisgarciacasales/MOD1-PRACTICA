@@ -28,7 +28,7 @@ from src.config import get_settings
 from src.pipeline.bronze import escribir_lote
 from src.sources import (
     banxico,
-    bmv,
+    eventos_relevantes,
     finnovista,
     fundamentales,
     google_news,
@@ -45,9 +45,11 @@ from src.sources.base import ResultadoFuente
 ADAPTADORES: dict[str, Callable[[], ResultadoFuente]] = {
     "finnovista": finnovista.ingerir,
     "financiero": lambda: rss.ingerir("financiero"),
-    "economista": lambda: rss.ingerir("economista"),
     "bloomberg": lambda: rss.ingerir("bloomberg"),
-    "bmv_eventos": bmv.ingerir,
+    # Reemplaza a bmv_eventos (25-ago-2026, ver src/config/eventos_relevantes.py):
+    # `economista` y `bmv_eventos` nunca aportaron dato (403 WAF y SPA sin
+    # tabla, respectivamente) — se retiraron del universo de fuentes.
+    "eventos_relevantes": eventos_relevantes.ingerir,
     # Antes de yahoo_finance porque son 14 peticiones HTTP ligeras; yfinance es
     # lo más lento del batch y conviene dejarlo al final.
     "google_news": google_news.ingerir,

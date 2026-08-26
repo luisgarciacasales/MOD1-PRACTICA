@@ -51,7 +51,10 @@ def check_bronze() -> list[Check]:
 
     metadatos = [leer_lote(r)[0] for r in lotes]
     fuentes = {m["source"] for m in metadatos}
-    esperadas = {"bmv_eventos", "financiero", "economista", "bloomberg",
+    # bmv_eventos y economista retirados (25-ago-2026, ver
+    # src/config/eventos_relevantes.py): nunca aportaron dato. eventos_relevantes
+    # las reemplaza.
+    esperadas = {"eventos_relevantes", "financiero", "bloomberg",
                  "finnovista", "yahoo_finance", "banxico"}
     faltan = esperadas - fuentes
 
@@ -59,7 +62,7 @@ def check_bronze() -> list[Check]:
         Check(
             "Bronze — fuentes ingeridas",
             PASS if len(fuentes) >= 5 else FAIL,
-            f"{len(fuentes)}/7 fuentes: {', '.join(sorted(fuentes))}"
+            f"{len(fuentes)}/6 fuentes: {', '.join(sorted(fuentes))}"
             + (f" · faltan: {', '.join(sorted(faltan))}" if faltan else ""),
         )
     ]

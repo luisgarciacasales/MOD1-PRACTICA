@@ -43,8 +43,12 @@ from src.texto import normalizar, terminos_presentes
 # `reportes_ir` (15-ago-2026): el comunicado narrativo trimestral de cada
 # emisora piloto, tratado como noticia porque es el mismo texto no
 # estructurado — mismo contrato, mismo enrich.
+# `bmv_eventos` y `economista` retirados (25-ago-2026): la primera nunca
+# funcionó (SPA sin tabla en el HTML crudo, ADR-11); la segunda seguía
+# bloqueada por WAF (403) sin acuerdo de acceso. `eventos_relevantes` la
+# reemplaza — ver src/config/eventos_relevantes.py para el porqué.
 SourceNoticias = Literal[
-    "bmv_eventos", "financiero", "economista", "bloomberg", "google_news", "reportes_ir"
+    "eventos_relevantes", "financiero", "bloomberg", "google_news", "reportes_ir"
 ]
 
 _URL_ADAPTER = TypeAdapter(HttpUrl)

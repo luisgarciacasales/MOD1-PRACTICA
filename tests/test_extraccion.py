@@ -243,8 +243,8 @@ def test_politica_monetaria_de_fed_y_banxico_activa_el_bypass():
     """Los términos que el usuario pidió cubrir ya estaban en el léxico macro."""
     from src.contracts import es_macro
 
-    assert es_macro("economista", "Banxico define su tasa objetivo tras la Fed") is True
-    assert es_macro("economista", "El costo de fondeo sube con la política monetaria") is True
+    assert es_macro("financiero", "Banxico define su tasa objetivo tras la Fed") is True
+    assert es_macro("financiero", "El costo de fondeo sube con la política monetaria") is True
 
 
 @pytest.mark.parametrize(

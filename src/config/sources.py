@@ -13,9 +13,8 @@ Categoria = Literal["noticias", "mercado", "diccionario"]
 SourceId = Literal[
     "google_news",
     "reportes_ir",
-    "bmv_eventos",
+    "eventos_relevantes",
     "financiero",
-    "economista",
     "bloomberg",
     "finnovista",
     "yahoo_finance",
@@ -34,17 +33,15 @@ class Fuente(NamedTuple):
 
 
 FUENTES: tuple[Fuente, ...] = (
-    # 3.1 — la fuente de menor estructura: tickers embebidos en texto libre.
-    # La página es una SPA: el listado lo pinta JavaScript y el HTML servido no
-    # trae tabla. Los endpoints internos probados devuelven 404 en el gateway
+    # 3.1 (RETIRADA 25-ago-2026, ver src/config/eventos_relevantes.py) — la
+    # fuente de menor estructura: tickers embebidos en texto libre. La página
+    # es una SPA: el listado lo pinta JavaScript y el HTML servido no trae
+    # tabla. Los endpoints internos probados devuelven 404 en el gateway
     # WSO2. Es el riesgo nº3 del PRD §9 ("scraping BMV frágil", probabilidad
-    # Alta) materializándose; el fail-soft por fuente está para esto.
-    Fuente(
-        "bmv_eventos",
-        "BMV — Eventos Relevantes",
-        "noticias",
-        "https://www.bmv.com.mx/es/Grupo_BMV/Eventos_relevantes",
-    ),
+    # Alta) materializándose; el fail-soft por fuente estuvo para esto
+    # mientras se buscaba reemplazo. Sustituida por `eventos_relevantes`, que
+    # sí es HTML estático (portal por emisora, no la SPA general).
+    #
     # 3.2 — RSS de medios financieros: más limpios que la propia BMV.
     # URLs verificadas desde el contenedor el 2026-08-01 (ver ADR-11).
     Fuente(
@@ -58,15 +55,11 @@ FUENTES: tuple[Fuente, ...] = (
         # abajo, nunca en la ingesta: Bronze no aplica criterios de selección.
         "https://www.elfinanciero.com.mx/rss/",
     ),
-    Fuente(
-        "economista",
-        "El Economista — Mercados",
-        "noticias",
-        # HTTP 403 desde el servidor incluso con cabeceras de navegador: el WAF
-        # bloquea IPs de datacenter. Se deja configurada porque el fail-soft la
-        # cubre y puede desbloquearse desde otra red o con otro acuerdo de uso.
-        "https://www.eleconomista.com.mx/rss/mercados",
-    ),
+    # "economista" (RETIRADA 25-ago-2026): HTTP 403 desde el servidor incluso
+    # con cabeceras de navegador — el WAF bloquea IPs de datacenter, sin
+    # acuerdo de acceso a la vista. No se reemplaza: financiero/bloomberg/
+    # google_news ya cubren la misma categoría (noticias financieras
+    # generales) con redundancia suficiente.
     Fuente(
         "bloomberg",
         "Bloomberg Línea — Mercados",
@@ -97,6 +90,16 @@ FUENTES: tuple[Fuente, ...] = (
     Fuente(
         "reportes_ir",
         "Reportes narrativos trimestrales (piloto)",
+        "noticias",
+        None,
+    ),
+    # AMPLIACIÓN 2026-08-25 — reemplaza a bmv_eventos. Página por emisora del
+    # mismo portal de divulgación de la BMV que ya usa reportes_ir (HTML
+    # estático, no la SPA general). Cobertura inicial: 5 emisoras con ID ya
+    # resuelto — ver src/config/eventos_relevantes.py.
+    Fuente(
+        "eventos_relevantes",
+        "BMV — Eventos relevantes por emisora",
         "noticias",
         None,
     ),
