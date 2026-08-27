@@ -1,6 +1,13 @@
-# RUNBOOK — Corrida diaria
+# RUNBOOK — Corridas del pipeline
 
-Cómo ejecutar el batch diario **desde tu propia terminal**, sin intermediarios.
+Cómo ejecutar el pipeline **desde tu propia terminal**, sin intermediarios.
+
+Hay **dos cadencias** y las dos hacen falta:
+
+| | comando | cuándo |
+|---|---|---|
+| Batch diario | `make batch` | cada día tras el cierre de la BMV (15:00 CT) |
+| Refresco histórico | `make refresco` | una vez por semana, mercado cerrado |
 Vale igual en la terminal integrada de VS Codium, en Terminal.app o en iTerm: es
 un shell normal.
 
@@ -58,23 +65,29 @@ mod1-postgres   Up ... (healthy)
 make batch
 ```
 
-Tarda entre 3 y 4 minutos. Corre las seis etapas en orden y **se detiene en la
+Tarda unos 4 minutos. Corre las seis etapas en orden y **se detiene en la
 primera que falle**, para no dejar Gold construido a medias.
 
-Salida esperada:
+Salida esperada (medida el 27-ago-2026, con 67 noticias nuevas):
 
 ```
 ETAPA        ESTADO      SEGUNDOS
 ----------------------------------
-ingest       OK              45.5
-validate     OK              57.7
-enrich       OK              98.9
-transform    OK               0.3
-correlate    OK               0.5
-index        OK              20.4
+ingest       OK             103.7
+validate     OK               8.3
+enrich       OK             104.5
+transform    OK               3.6
+correlate    OK               0.9
+index        OK              17.4
 ----------------------------------
-TOTAL                       223.3
+TOTAL                       238.5
 ```
+
+Las dos etapas largas son `ingest` (pausa antirrate-limit de yfinance, ~0,6 s
+por ticker) y `enrich` (GPU, ~1,5 s por noticia). `validate` bajó de 214 s a
+8 s el 26-ago, cuando dejó de revalidar todo Bronze en cada corrida: ahora
+procesa solo los lotes que no ha visto. Si vuelve a subir a minutos, es señal
+de que algo está reprocesando lotes antiguos.
 
 **Solo hay que hacerlo después del cierre de la BMV (15:00 hora de Ciudad de
 México).** Antes de esa hora el batch se niega a correr, porque ingerir con el
@@ -86,6 +99,11 @@ retornos. Si lo intentas verás:
 ```
 
 Eso **no** es un error: es el guardia funcionando.
+
+> El horario y la fecha con la que se archiva cada lote se calculan en **hora de
+> Ciudad de México**, no con el reloj del contenedor (que va en UTC). Antes del
+> 26-ago-2026 no era así, y cualquier corrida posterior a las 18:00 quedaba
+> archivada bajo la fecha del día siguiente.
 
 ### 3. Revisa la evolución entre días
 
@@ -102,6 +120,50 @@ Una línea por corrida, con tiempos y volúmenes:
 Es lo que permite ver si el sistema se comporta igual día a día. Un `total`
 creciente **no** es mala señal por sí solo: mira si `news` creció en la misma
 proporción.
+
+> **`historial` no es una bitácora de "hubo corrida".** Solo escribe línea
+> cuando ejecutas `make batch`. Si corriste etapas sueltas (`make ingest`,
+> `make validate`), ese día no aparece aquí aunque sí se ingiriera. Para saber
+> qué días tienen datos, la fuente fiable es `make bronze`, no el historial.
+
+---
+
+## La corrida SEMANAL (no la olvides)
+
+Además del batch diario hay una tarea semanal. Corre cuando quieras, con el
+mercado cerrado — un fin de semana va bien:
+
+```bash
+make refresco
+```
+
+Tarda unos 25 segundos y no toca las noticias: solo vuelve a descargar el
+histórico completo de precios y macro, y lo carga.
+
+**Por qué hace falta.** La corrida diaria trae solo los últimos 10 días de
+precios, que es todo lo que puede haber cambiado. Pero cuando una emisora paga
+un dividendo o hace un split, Yahoo **recalcula `Adj Close` hacia atrás en toda
+la serie**, y `transform` construye sobre esa columna el retorno diario, las
+medias móviles y los múltiplos P/U y P/VL. Sin el refresco, la parte antigua de
+la serie se queda con el ajuste viejo y queda una discontinuidad **que ningún
+error señala**: las tablas se ven perfectamente normales.
+
+**Por qué semanal y no mensual.** Las 16 emisoras generan del orden de 25
+dividendos y splits al año — uno cada dos semanas. Espaciarlo más significa
+arrastrar reajustes sin aplicar la mayor parte del tiempo, que es justo lo que
+el refresco existe para evitar.
+
+Salida esperada:
+
+```
+yahoo_finance    OK      46628 reg → market/yahoo_finance/2026-08-26/...
+banxico          OK      16208 reg → market/banxico/2026-08-26/...
+...
+yahoo_finance       0     46427         201
+```
+
+`0` filas nuevas y decenas de miles de actualizadas es lo **correcto**: quiere
+decir que el histórico ya estaba completo y solo se refrescaron los ajustes.
 
 ---
 
@@ -131,8 +193,15 @@ ssh mi-pc 'cd ~/augmented/services/MOD1-PRACTICA && tail -40 "$(ls -t data/logs/
 ```
 
 **Reintentar es seguro.** Todas las etapas son idempotentes: si vuelves a correr
-`make batch` después de arreglar la causa, lo ya procesado no se duplica —
-`validate` reportará `filas_nuevas = 0` y `enrich` solo tomará lo pendiente.
+`make batch` después de arreglar la causa, lo ya procesado no se duplica.
+`enrich` solo toma lo pendiente, y `validate` se salta los lotes que ya cargó.
+
+> Ojo con leer el `filas_nuevas` de `validate` como prueba de idempotencia.
+> Desde el 26-ago la etapa salta los lotes ya procesados, así que un 0 puede
+> significar «el UPSERT no duplicó» o «no había nada que procesar», que no es
+> lo mismo. Por eso el mensaje dice `filas_nuevas = N sobre lotes nuevos`.
+> La comprobación de verdad la hace `make verify`, que internamente corre
+> `validate --todo` y revalida Bronze entero.
 
 ---
 
@@ -184,7 +253,8 @@ make verify                   # los 17 checks de la Definición de Terminado (§
 make test                     # las pruebas unitarias (no tocan red ni base)
 make gpu                      # VRAM y uso de la RTX 5080
 make ollama                   # modelos cargados en el lab-ollama compartido
-make bronze                   # inventario de lotes en Bronze
+make bronze                   # inventario de lotes en Bronze (qué días tienen datos)
+make refresco                 # refresco histórico SEMANAL de precios y macro
 make search Q="tasas de Banxico"     # búsqueda semántica
 make psql                     # consola SQL interactiva contra Silver/Gold
 make help                     # todos los targets
@@ -200,6 +270,19 @@ make validate
 make batch ARGS="--hasta transform"    # la cadena, pero deteniéndose antes
 ```
 
+**Reconstruir Silver desde cero.** Silver se regenera entero desde Bronze, pero
+`validate` a secas ya no sirve para eso: se saltaría todos los lotes por estar
+ya registrados. Hay que forzar la pasada completa:
+
+```bash
+make validate ARGS=--todo
+```
+
+Es lo que toca correr después de cambiar un contrato o una regla de validación,
+porque las filas que entraron bajo la regla vieja no las alcanza el UPSERT si
+dejan de satisfacer el contrato nuevo, y quedarían como residuo silencioso.
+Tarda unos 3 minutos frente a los 8 segundos de la corrida normal.
+
 ---
 
 ## Lo que NO debes hacer
@@ -212,3 +295,6 @@ make batch ARGS="--hasta transform"    # la cadena, pero deteniéndose antes
   (invariante 3).
 - **Correr el batch antes de las 15:00 CT** con `--ignorar-horario` sin motivo: la
   vela del día estaría incompleta.
+- **Saltarte el `make refresco` semanal.** No falla nada visible si lo omites:
+  simplemente los múltiplos de la parte antigua de cada serie van quedando
+  desajustados tras cada dividendo, sin ningún error que lo delate.
