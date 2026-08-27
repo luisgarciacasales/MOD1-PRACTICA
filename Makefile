@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial ingest validate enrich transform correlate index search demo evidencia bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index search demo evidencia bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -207,6 +207,10 @@ validate: ## Valida Bronze y carga Silver (uso: make validate ARGS="--date 2026-
 
 ingest: ## Ingesta las 5 fuentes hacia Bronze (uso: make ingest ARGS="--dry-run")
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest $(ARGS)'
+
+refresco: ## Refresco histórico SEMANAL (recoge el reajuste de Adj Close por dividendos/splits)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest --refresco-completo'
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.validate'
 
 bronze: ## Inventario de lotes en Bronze
 	$(RUN) 'cd $(DIR) && find data/bronze -name metadata.json -printf "%h\n" 2>/dev/null | sed "s|data/bronze/||" | sort || echo "(Bronze vacío)"'

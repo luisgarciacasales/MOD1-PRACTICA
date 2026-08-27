@@ -20,7 +20,11 @@ import time
 from datetime import date
 from typing import Any
 
-from src.config.tickers import TICKERS_MERCADO, VENTANA_HISTORICA_ANIOS
+from src.config.tickers import (
+    TICKERS_MERCADO,
+    VENTANA_PRECIOS_DIARIA,
+    ventana_historica_ticker,
+)
 from src.sources.base import ResultadoFuente
 
 # El PRD §9 recomienda espaciar 0.5–1 s entre solicitudes en producción.
@@ -30,9 +34,24 @@ PAUSA_ENTRE_TICKERS = 0.6
 def ingerir(
     *,
     tickers: tuple[str, ...] = TICKERS_MERCADO,
+    modo: str = "diario",
     periodo: str | None = None,
 ) -> ResultadoFuente:
-    """Descarga el histórico de cada ticker.
+    """Descarga precios de cada ticker.
+
+    Dos velocidades (ver el bloque de ventanas en `src/config/tickers.py`):
+
+    · `modo="diario"` — `VENTANA_PRECIOS_DIARIA`. Es lo que corre cada día: solo
+      trae lo que puede haber cambiado, que es la vela en curso consolidándose.
+    · `modo="completo"` — ventana por ticker (`max` para los de historia
+      completa, el tope general para el resto). Es lo que repara el reajuste
+      retroactivo de `Adj Close` tras un dividendo o un split, que reescala la
+      serie entera. Va semanal porque el universo genera del orden de 25 de esos
+      eventos al año: uno cada dos semanas, así que espaciarlo más dejaría la
+      serie profunda desajustada casi siempre.
+
+    `periodo` fuerza una ventana concreta e ignora el modo; lo usan los
+    backfills puntuales.
 
     Fail-soft **por ticker además de por fuente**: que Yahoo no reconozca un
     símbolo no puede costar los otros siete. Los fallos individuales se anotan
@@ -43,14 +62,23 @@ def ingerir(
     except Exception as exc:  # noqa: BLE001
         return ResultadoFuente.fallo("yahoo_finance", "market", exc)
 
-    periodo = periodo or f"{VENTANA_HISTORICA_ANIOS}y"
+    if modo not in ("diario", "completo"):
+        return ResultadoFuente.fallo(
+            "yahoo_finance", "market", ValueError(f"modo desconocido: {modo!r}")
+        )
+
     registros: list[dict[str, Any]] = []
     fallidos: list[str] = []
 
     for i, ticker in enumerate(tickers):
+        # La ventana se resuelve POR TICKER: en modo completo, GFNORTEO pide
+        # `max` y el resto el tope general.
+        ventana = periodo or (
+            VENTANA_PRECIOS_DIARIA if modo == "diario" else ventana_historica_ticker(ticker)
+        )
         try:
             historico = yf.Ticker(ticker).history(
-                period=periodo, interval="1d", auto_adjust=False, raise_errors=False
+                period=ventana, interval="1d", auto_adjust=False, raise_errors=False
             )
             if historico is None or historico.empty:
                 fallidos.append(f"{ticker}: serie vacía")

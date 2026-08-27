@@ -117,8 +117,54 @@ TICKERS_MERCADO: tuple[str, ...] = (*TICKERS_PRIORITARIOS, BENCHMARK)
 # Banorte), y SANN.MX tiene un 12% de sesiones sin operar.
 EMISORAS_SIC: frozenset[str] = frozenset({"BBVA.MX", "SANN.MX"})
 
-# Ventana histórica inicial; después la ingesta es incremental diaria (PRD §3.4).
-VENTANA_HISTORICA_ANIOS: int = 2
+# --- Ventanas históricas (revisadas 26-ago-2026) ----------------------------
+#
+# Antes: 2 años fijos, redescargados enteros cada día. Medido sobre Bronze, eso
+# era pagar 8.520 registros diarios por nada — comparando lotes con 24 días de
+# separación (3.865 filas comunes), CERO cambios materiales en `close` y en
+# `adj_close`; lo único que cambia entre lotes es la vela del día en curso, que
+# se consolida al día siguiente.
+#
+# Lo que sí cambia hacia atrás es el ajuste por dividendos y splits, que
+# reescala `Adj Close` en TODA la serie. Y eso no lo cubría nadie: las filas
+# fuera de la ventana rodante no las refrescaba ninguna corrida (6.251 de las
+# 6.751 de GFNORTEO estaban congeladas). De ahí el esquema en dos velocidades.
+#
+# Profundidad = 10 años. No es un número redondo: es la ventana más honda en la
+# que casi todo el universo tiene historia completa. El mínimo es BBAJIOO.MX
+# (IPO jun-2017, 9,2 años) seguido de Q.MX (11,1); a 15 años esas dos quedarían
+# con la mitad de muestra que el resto y los z-scores de valuación dejarían de
+# ser comparables entre emisoras. Además 15 años (2011→) tampoco alcanza 2008,
+# así que no compra el evento de cola que justificaría irse tan atrás. 10 años
+# (2016→) sí cubre COVID, el ciclo completo de Banxico (alzas 2021-23 →
+# recortes 2024-25) y las elecciones de 2018 y 2024.
+
+# Corrida diaria: solo lo que puede haber cambiado. Diez días naturales cubren
+# la consolidación de la vela del día, un puente largo y un par de corridas
+# fallidas seguidas.
+VENTANA_PRECIOS_DIARIA: str = "10d"
+
+# Refresco completo (semanal) y ventana de macro. La usa también `banxico.py`,
+# que alinea su rango con el de precios a propósito: sin macro tan atrás, el
+# `macro_context` de una noticia antigua se queda sin las dos mitades del JOIN.
+VENTANA_HISTORICA_ANIOS: int = 10
+
+# Emisoras donde se quiere la serie entera, no los 10 años. Se declaran a mano
+# porque cuestan un backfill deliberado y son los casos de estudio del análisis;
+# sin esto, su historia profunda quedaría congelada igual que antes.
+TICKERS_HISTORIA_COMPLETA: frozenset[str] = frozenset({"GFNORTEO.MX"})
+
+
+def ventana_historica_ticker(ticker: str) -> str:
+    """Periodo de yfinance para el refresco completo de este ticker.
+
+    `max` para los declarados en `TICKERS_HISTORIA_COMPLETA`; el tope general
+    para el resto. yfinance recorta solo si el ticker no llega tan atrás, así
+    que pedir 10 años a una emisora con 9 devuelve sus 9 sin error.
+    """
+    if ticker in TICKERS_HISTORIA_COMPLETA:
+        return "max"
+    return f"{VENTANA_HISTORICA_ANIOS}y"
 
 
 # --- Proxy ticker para fintechs sin cotización (PRD §3.3) --------------------

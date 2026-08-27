@@ -34,9 +34,25 @@ ACEPTA_JSON = {"Accept": "application/json"}
 # de más y el recurso deja de existir.
 FORMATO_FECHA_SIE = "%Y-%m-%d"
 
+# Ventana de la corrida diaria. Más ancha que la de precios (10 días) porque las
+# series macro son mensuales: con menos margen, un dato publicado con retraso
+# podría caer fuera y no entrar nunca. 45 días cubren un mes completo más la
+# demora habitual de publicación.
+DIAS_DIARIO = 45
 
-def ingerir(*, series: tuple[SerieBanxico, ...] = SERIES) -> ResultadoFuente:
-    """Descarga las series configuradas. Fail-soft por serie y por fuente."""
+
+def ingerir(
+    *, series: tuple[SerieBanxico, ...] = SERIES, modo: str = "diario"
+) -> ResultadoFuente:
+    """Descarga las series configuradas. Fail-soft por serie y por fuente.
+
+    Dos velocidades, como en `market.py` y por la misma razón de coste: la
+    ventana histórica completa solo hace falta en el refresco semanal. El SIE
+    también revisa series hacia atrás (el INPC y el PIB se ajustan tras su
+    publicación preliminar), así que refrescarlas periódicamente no es opcional
+    — pero pedir diez años cada día para recoger un dato nuevo sí sería
+    desproporcionado.
+    """
     settings = get_settings()
 
     if not settings.banxico_token or settings.banxico_token == "CAMBIAME":
@@ -57,7 +73,8 @@ def ingerir(*, series: tuple[SerieBanxico, ...] = SERIES) -> ResultadoFuente:
     # de una noticia con fecha pasada. La ventana se alinea con la de precios
     # para que el JOIN temporal tenga las dos mitades cubiertas.
     hasta = datetime.now(UTC).date()
-    desde = hasta - timedelta(days=365 * VENTANA_HISTORICA_ANIOS)
+    dias = DIAS_DIARIO if modo == "diario" else 365 * VENTANA_HISTORICA_ANIOS
+    desde = hasta - timedelta(days=dias)
     rango = f"{desde.strftime(FORMATO_FECHA_SIE)}/{hasta.strftime(FORMATO_FECHA_SIE)}"
 
     registros: list[dict[str, Any]] = []

@@ -77,12 +77,23 @@ def ingerir_todo(
     fuentes: list[str],
     raiz_bronze: Path,
     dry_run: bool = False,
+    refresco_completo: bool = False,
 ) -> list[tuple[ResultadoFuente, str]]:
-    """Ejecuta las fuentes indicadas. Devuelve (resultado, detalle) por fuente."""
+    """Ejecuta las fuentes indicadas. Devuelve (resultado, detalle) por fuente.
+
+    `refresco_completo` solo afecta a `yahoo_finance`: pide la ventana histórica
+    por ticker en vez de la diaria. Es la corrida semanal que recoge los
+    reajustes retroactivos de `Adj Close` (ver `src/sources/market.py`).
+    """
     salida: list[tuple[ResultadoFuente, str]] = []
 
+    adaptadores = dict(ADAPTADORES)
+    if refresco_completo:
+        adaptadores["yahoo_finance"] = lambda: market.ingerir(modo="completo")
+        adaptadores["banxico"] = lambda: banxico.ingerir(modo="completo")
+
     for nombre in fuentes:
-        adaptador = ADAPTADORES[nombre]
+        adaptador = adaptadores[nombre]
         print(f"[ingest] {nombre}: descargando…", flush=True)
 
         try:
@@ -145,6 +156,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Descarga y reporta sin escribir en Bronze.",
     )
+    parser.add_argument(
+        "--refresco-completo",
+        action="store_true",
+        help="yahoo_finance descarga la ventana histórica por ticker en vez de "
+             "la diaria. Corrida semanal: recoge el reajuste retroactivo de "
+             "Adj Close tras dividendos y splits.",
+    )
     args = parser.parse_args(argv)
 
     fecha = date.fromisoformat(args.fecha) if args.fecha else datetime.now(UTC).date()
@@ -157,8 +175,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.dry_run:
         print("[ingest] DRY RUN — no se escribirá nada en Bronze")
 
+    if args.refresco_completo:
+        print("[ingest] REFRESCO COMPLETO — yahoo_finance trae la ventana histórica")
+
     resultados = ingerir_todo(
-        fecha=fecha, fuentes=fuentes, raiz_bronze=raiz_bronze, dry_run=args.dry_run
+        fecha=fecha, fuentes=fuentes, raiz_bronze=raiz_bronze, dry_run=args.dry_run,
+        refresco_completo=args.refresco_completo,
     )
 
     # --- Resumen ------------------------------------------------------------
