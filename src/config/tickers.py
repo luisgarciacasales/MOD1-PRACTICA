@@ -232,6 +232,23 @@ SECTORES_VALIDOS: frozenset[str] = frozenset(SECTOR_A_PROXY)
 # conversión FX. SF43718 (USD/MXN, ya se ingiere vía Banxico) resolvería
 # CEMEX/GMéxico; BBVA/SANN necesitarían EUR/MXN, que hoy no está en el
 # universo de series de Banxico — ver src/config/banxico_series.py.
+# Serie del SIE que convierte a MXN los estados financieros de cada emisora que
+# NO reporta en pesos. Sustituye a la exclusión que traía
+# TICKERS_MONEDA_FINANCIERA_DISTINTA: excluirlas costaba 4 de 16 emisoras, dos
+# de ellas bancos (BBVA, Santander) justo en el sector que el roadmap prioriza.
+#
+# Un ticker ausente de este mapa reporta en pesos y no se convierte. Lo que NO
+# se hace nunca es asumir factor 1 cuando falta el tipo de cambio: eso daría un
+# P/U veinte veces menor sin que nada lo delate. Sin FX no hay valuación.
+# ticker -> (moneda de reporte, serie del SIE que la convierte a MXN)
+FX_POR_TICKER: dict[str, tuple[str, str]] = {
+    "BBVA.MX": ("EUR", "SF46410"),
+    "SANN.MX": ("EUR", "SF46410"),
+    "CEMEXCPO.MX": ("USD", "SF43718"),
+    "GMEXICOB.MX": ("USD", "SF43718"),
+}
+
+
 TICKERS_MONEDA_FINANCIERA_DISTINTA: frozenset[str] = frozenset({
     "CEMEXCPO.MX", "GMEXICOB.MX", "BBVA.MX", "SANN.MX",
 })

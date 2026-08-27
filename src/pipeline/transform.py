@@ -19,7 +19,7 @@ import json
 
 from src.config.banxico_series import SERIES_POR_ID
 from src.config.inegi_series import INDICADORES_POR_ID
-from src.config.tickers import BENCHMARK, TICKERS_MONEDA_FINANCIERA_DISTINTA
+from src.config.tickers import BENCHMARK, FX_POR_TICKER
 from src.pipeline import db
 
 # Dos decisiones dentro de esta consulta que conviene no perder de vista:
@@ -271,11 +271,25 @@ RETURNING (xmax = 0)
 # nunca. eps_source declara cuál se usó: no son la misma medida (anual
 # actualiza 1 vez al año, TTM trimestral 4 veces).
 #
-# Exclusión de moneda (TICKERS_MONEDA_FINANCIERA_DISTINTA, ver
-# src/config/tickers.py): CEMEXCPO.MX/GMEXICOB.MX reportan en USD, BBVA.MX/
-# SANN.MX en EUR, todas con precio en MXN — sin excluirlas el P/U sale en
-# cientos de veces, un artefacto de conversión, no una lectura real. Aplica
-# igual al P/VL: capital_contable tiene el mismo problema de moneda.
+# Conversión de moneda (FX_POR_TICKER, ver src/config/tickers.py):
+# CEMEXCPO.MX/GMEXICOB.MX reportan en USD, BBVA.MX/SANN.MX en EUR, todas con
+# precio en MXN. Antes se EXCLUÍAN, porque sin convertir el P/U sale en cientos
+# de veces; ahora se convierten con el tipo de cambio del SIE (SF43718 para el
+# dólar, SF46410 para el euro).
+#
+# Dónde se aplica el factor importa: cada observación se convierte con el FX de
+# SU PROPIO period_end, ANTES de agregar. Convertir el TTM ya sumado con un solo
+# tipo daría un número distinto —y peor— porque los cuatro trimestres se
+# generaron con el peso en niveles diferentes.
+#
+# Qué NO se convierte: `acciones_en_circulacion`, que es un conteo de títulos,
+# no un importe. Solo `utilidad_por_accion` y `capital_contable`.
+#
+# Y lo que nunca se hace: dar por bueno un factor 1 cuando falta el tipo de
+# cambio. Un COALESCE descuidado ahí produce un P/U veinte veces menor sin que
+# nada lo delate. Si no hay FX para ese period_end, el factor es NULL y la fila
+# se queda sin valuación — una celda vacía es un dato honesto, un múltiplo mal
+# convertido no.
 #
 # P/VL (013_valuation_pb.sql, mismo despliegue que agregó
 # acciones_en_circulacion al contrato de fundamentales): book_value_per_share
@@ -288,46 +302,85 @@ RETURNING (xmax = 0)
 # condición evita reabrir la restricción NOT NULL de 010_valuation.sql sobre
 # eps_ttm/pe_ratio por una ganancia de cobertura marginal.
 _SQL_VALUATION = """
-WITH eps_ttm AS (
-    SELECT ticker, period_end,
-           SUM(utilidad_por_accion) OVER w AS eps_ttm,
-           COUNT(utilidad_por_accion) OVER w AS n_trimestres,
-           period_end + 45 AS disponible_desde
-    FROM silver_fundamentals
-    WINDOW w AS (PARTITION BY ticker ORDER BY period_end ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)
+WITH fx_config AS (
+    SELECT UNNEST(%(fx_tickers)s::text[]) AS ticker,
+           UNNEST(%(fx_series)s::text[])  AS series_id,
+           UNNEST(%(fx_monedas)s::text[]) AS moneda
+),
+-- Factor de conversión a MXN por (ticker, period_end). Un ticker ausente de
+-- fx_config reporta en pesos: factor 1. Uno presente SIN tipo de cambio
+-- disponible para esa fecha se queda en NULL a propósito, y arrastra a NULL el
+-- múltiplo entero.
+fx AS (
+    SELECT f.ticker, f.period_end,
+           CASE WHEN c.series_id IS NULL THEN 1.0 ELSE tc.value END AS factor,
+           COALESCE(c.moneda, 'MXN') AS moneda,
+           CASE WHEN c.series_id IS NOT NULL THEN tc.value END AS fx_aplicado
+    FROM (
+        SELECT ticker, period_end FROM silver_fundamentals
+        UNION
+        SELECT ticker, period_end FROM silver_fundamentals_anual
+    ) f
+    LEFT JOIN fx_config c ON c.ticker = f.ticker
+    LEFT JOIN LATERAL (
+        -- El último tipo publicado en o antes del cierre del periodo: las
+        -- series son diarias y no cotizan fines de semana ni feriados, así que
+        -- un igualdad exacta perdería la mayoría de los period_end.
+        SELECT s.value
+        FROM silver_macro_indicators s
+        WHERE s.series_id = c.series_id AND s.date <= f.period_end
+        ORDER BY s.date DESC
+        LIMIT 1
+    ) tc ON TRUE
+),
+eps_ttm AS (
+    SELECT f.ticker, f.period_end,
+           SUM(f.utilidad_por_accion * x.factor) OVER w AS eps_ttm,
+           COUNT(f.utilidad_por_accion * x.factor) OVER w AS n_trimestres,
+           x.moneda, x.fx_aplicado,
+           f.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals f
+    JOIN fx x ON x.ticker = f.ticker AND x.period_end = f.period_end
+    WINDOW w AS (PARTITION BY f.ticker ORDER BY f.period_end ROWS BETWEEN 3 PRECEDING AND CURRENT ROW)
 ),
 -- Mismo rezago de 45 días que el trimestral: el reporte anual de una
 -- financiera suele publicarse junto con su Q4, mismo calendario de
 -- disclosure — no es una segunda aproximación independiente.
 eps_anual AS (
-    SELECT ticker, period_end, utilidad_por_accion AS eps_anual,
-           period_end + 45 AS disponible_desde
-    FROM silver_fundamentals_anual
-    WHERE utilidad_por_accion IS NOT NULL
+    SELECT a.ticker, a.period_end, a.utilidad_por_accion * x.factor AS eps_anual,
+           x.moneda, x.fx_aplicado,
+           a.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals_anual a
+    JOIN fx x ON x.ticker = a.ticker AND x.period_end = a.period_end
+    WHERE a.utilidad_por_accion IS NOT NULL
 ),
 libro_trimestral AS (
-    SELECT ticker, period_end,
-           capital_contable / NULLIF(acciones_en_circulacion, 0) AS bvps,
-           period_end + 45 AS disponible_desde
-    FROM silver_fundamentals
-    WHERE capital_contable IS NOT NULL AND acciones_en_circulacion IS NOT NULL
+    SELECT f.ticker, f.period_end,
+           (f.capital_contable * x.factor) / NULLIF(f.acciones_en_circulacion, 0) AS bvps,
+           f.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals f
+    JOIN fx x ON x.ticker = f.ticker AND x.period_end = f.period_end
+    WHERE f.capital_contable IS NOT NULL AND f.acciones_en_circulacion IS NOT NULL
 ),
 libro_anual AS (
-    SELECT ticker, period_end,
-           capital_contable / NULLIF(acciones_en_circulacion, 0) AS bvps,
-           period_end + 45 AS disponible_desde
-    FROM silver_fundamentals_anual
-    WHERE capital_contable IS NOT NULL AND acciones_en_circulacion IS NOT NULL
+    SELECT a.ticker, a.period_end,
+           (a.capital_contable * x.factor) / NULLIF(a.acciones_en_circulacion, 0) AS bvps,
+           a.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals_anual a
+    JOIN fx x ON x.ticker = a.ticker AND x.period_end = a.period_end
+    WHERE a.capital_contable IS NOT NULL AND a.acciones_en_circulacion IS NOT NULL
 ),
 precio_multiplos AS (
     SELECT p.ticker, p.date, p.adj_close,
            COALESCE(t.eps_ttm, a.eps_anual) AS eps_ttm,
            CASE WHEN t.eps_ttm IS NOT NULL THEN 'trimestral_ttm' ELSE 'anual' END AS eps_source,
            COALESCE(lt.bvps, la.bvps) AS book_value_per_share,
-           CASE WHEN lt.bvps IS NOT NULL THEN 'trimestral' ELSE 'anual' END AS book_source
+           CASE WHEN lt.bvps IS NOT NULL THEN 'trimestral' ELSE 'anual' END AS book_source,
+           COALESCE(t.moneda, a.moneda, 'MXN') AS moneda_reporte,
+           COALESCE(t.fx_aplicado, a.fx_aplicado) AS fx_aplicado
     FROM silver_market_prices p
     LEFT JOIN LATERAL (
-        SELECT eps.eps_ttm
+        SELECT eps.eps_ttm, eps.moneda, eps.fx_aplicado
         FROM eps_ttm eps
         WHERE eps.ticker = p.ticker
           AND eps.n_trimestres = 4
@@ -336,7 +389,7 @@ precio_multiplos AS (
         LIMIT 1
     ) t ON TRUE
     LEFT JOIN LATERAL (
-        SELECT ea.eps_anual
+        SELECT ea.eps_anual, ea.moneda, ea.fx_aplicado
         FROM eps_anual ea
         WHERE ea.ticker = p.ticker
           AND ea.disponible_desde <= p.date
@@ -360,10 +413,9 @@ precio_multiplos AS (
         LIMIT 1
     ) la ON TRUE
     WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA ni valor en libros
-      AND p.ticker <> ALL(%(moneda_distinta)s)
 ),
 con_multiplos AS (
-    SELECT ticker, date, adj_close, eps_ttm, eps_source,
+    SELECT ticker, date, adj_close, eps_ttm, eps_source, moneda_reporte, fx_aplicado,
            CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio,
            book_value_per_share, book_source,
            CASE WHEN book_value_per_share > 0
@@ -383,7 +435,8 @@ con_z AS (
 )
 INSERT INTO gold_valuation (
     ticker, date, adj_close, eps_ttm, eps_source, pe_ratio, pe_zscore_1y,
-    book_value_per_share, book_source, pb_ratio, pb_zscore_1y, ingested_at
+    book_value_per_share, book_source, pb_ratio, pb_zscore_1y,
+    moneda_reporte, fx_aplicado, ingested_at
 )
 SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        CASE WHEN n_1y_pe >= 60 AND pe_desv_1y > 0
@@ -391,6 +444,7 @@ SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        book_value_per_share, book_source, pb_ratio,
        CASE WHEN n_1y_pb >= 60 AND pb_desv_1y > 0
             THEN (pb_ratio - pb_media_1y) / pb_desv_1y END,
+       moneda_reporte, fx_aplicado,
        NOW()
 FROM con_z
 WHERE pe_ratio IS NOT NULL
@@ -404,16 +458,24 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     book_source           = EXCLUDED.book_source,
     pb_ratio              = EXCLUDED.pb_ratio,
     pb_zscore_1y          = EXCLUDED.pb_zscore_1y,
+    moneda_reporte        = EXCLUDED.moneda_reporte,
+    fx_aplicado           = EXCLUDED.fx_aplicado,
     ingested_at           = NOW()
 RETURNING (xmax = 0)
 """
 
-# Limpieza de lo que _SQL_VALUATION ya no visita: las filas de
-# TICKERS_MONEDA_FINANCIERA_DISTINTA que se insertaron ANTES de que existiera
-# la exclusión de moneda (25-ago-2026) se quedarían inertes en Gold —
-# artefactos correctos en su momento, erróneos ahora — porque un
-# ON CONFLICT solo actualiza filas que la nueva consulta vuelve a visitar.
-_SQL_VALUATION_LIMPIAR = "DELETE FROM gold_valuation WHERE ticker = ANY(%(moneda_distinta)s)"
+# Limpieza de filas que _SQL_VALUATION ya no puede alcanzar. Un ON CONFLICT
+# solo actualiza lo que la consulta vuelve a visitar, así que un múltiplo
+# calculado bajo reglas viejas se quedaría inerte en Gold pareciendo vigente.
+#
+# Hoy borra las filas SIN CONVERTIR de las emisoras que reportan en otra moneda:
+# entre el 25 y el 26-ago esas cuatro estuvieron excluidas, pero antes del 25
+# llegaron a insertarse con el P/U sin convertir (cientos de veces). El DELETE
+# es idempotente y barato, y se ejecuta antes del INSERT.
+_SQL_VALUATION_LIMPIAR = """
+DELETE FROM gold_valuation
+WHERE ticker = ANY(%(fx_tickers)s) AND moneda_reporte = 'MXN'
+"""
 
 
 def _contar(cur) -> tuple[int, int]:
@@ -445,9 +507,18 @@ def ejecutar() -> int:
         cur.execute(_SQL_FUNDAMENTALES_ANUAL)
         fa_nuevas, fa_act = _contar(cur)
 
-        moneda_distinta = list(TICKERS_MONEDA_FINANCIERA_DISTINTA)
-        cur.execute(_SQL_VALUATION_LIMPIAR, {"moneda_distinta": moneda_distinta})
-        cur.execute(_SQL_VALUATION, {"benchmark": BENCHMARK, "moneda_distinta": moneda_distinta})
+        # Tres arrays paralelos en vez de un dict: el SQL los reconstruye con
+        # UNNEST y así el mapa vive en la config, no incrustado en la consulta.
+        fx_tickers = sorted(FX_POR_TICKER)
+        fx_monedas = [FX_POR_TICKER[tk][0] for tk in fx_tickers]
+        fx_series = [FX_POR_TICKER[tk][1] for tk in fx_tickers]
+        cur.execute(_SQL_VALUATION_LIMPIAR, {"fx_tickers": fx_tickers})
+        cur.execute(_SQL_VALUATION, {
+            "benchmark": BENCHMARK,
+            "fx_tickers": fx_tickers,
+            "fx_series": fx_series,
+            "fx_monedas": fx_monedas,
+        })
         v_nuevas, v_act = _contar(cur)
         conexion.commit()
 

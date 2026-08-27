@@ -36,7 +36,11 @@ class SerieBanxico(NamedTuple):
 #   SF46410  el PRD dice "Tipo de cambio FIX"           → es "Cotización de las
 #            divisas que conforman la canasta del DEG" (19,97), que no es
 #            USD/MXN. El FIX es SF43718, ya presente en la lista, así que su
-#            hueco se aprovecha para la tasa de fondeo bancario (SF43773).
+#            hueco se aprovechó para la tasa de fondeo bancario (SF43773).
+#            NOTA (26-ago-2026): SF46410 sí se usa ahora, con su nombre real —
+#            es el EURO respecto al peso, y es lo que convierte a MXN los
+#            estados financieros de BBVA.MX y SANN.MX. Descartarla como "no es
+#            el FIX" era correcto; asumir que no servía para nada, no.
 #
 # Consecuencia de no corregirlo: el `macro_context` de cada correlación
 # etiquetaba un tipo de cambio como "tasa de fondeo" y una canasta del DEG como
@@ -69,6 +73,13 @@ SERIES: tuple[SerieBanxico, ...] = (
     SerieBanxico("SF43886", "Bono tasa fija 5 años", "diaria"),
     # --- Tipo de cambio ---
     SerieBanxico("SF43718", "Tipo de cambio FIX USD/MXN", "diaria"),
+    # EUR/MXN. Título confirmado con el endpoint de metadatos, como el resto:
+    # "Cotización de las divisas que conforman la canasta del DEG Respecto al
+    # peso mexicano Euro". Empieza el 31/07/2018 — de sobra para unos
+    # fundamentales que no llegan más atrás de 2022. Coherencia comprobada al
+    # elegirla: 19,79 EUR/MXN contra 16,97 USD/MXN da EUR/USD 1,166.
+    # Se prefirió sobre SF57923 ("EUR Unión Monetaria Europea"), que es mensual.
+    SerieBanxico("SF46410", "Tipo de cambio EUR/MXN", "diaria"),
     # --- Mensuales ---
     SerieBanxico("SF311408", "Agregado monetario M1", "mensual"),
     SerieBanxico("SP74625", "INPC subíndice subyacente", "mensual"),
