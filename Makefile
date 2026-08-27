@@ -209,7 +209,9 @@ ingest: ## Ingesta las 5 fuentes hacia Bronze (uso: make ingest ARGS="--dry-run"
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest $(ARGS)'
 
 refresco: ## Refresco histórico SEMANAL (recoge el reajuste de Adj Close por dividendos/splits)
-	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest --refresco-completo'
+	# Solo las fuentes con ventana histórica. Va ADEMÁS del batch diario, no en
+	# su lugar: los RSS no tienen histórico que refrescar.
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest --refresco-completo --source yahoo_finance --source banxico'
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.validate'
 
 bronze: ## Inventario de lotes en Bronze
