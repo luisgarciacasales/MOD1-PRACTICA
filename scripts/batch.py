@@ -31,13 +31,12 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 sys.path.insert(0, "/app")
 
 from src.config import get_settings  # noqa: E402
+from src.config.tiempo import TZ_MERCADO  # noqa: E402
 
-TZ_MERCADO = ZoneInfo("America/Mexico_City")
 HORA_CIERRE = 15  # BMV: 15:00 CT
 
 # Orden no negociable: cada etapa consume lo que produjo la anterior.

@@ -21,10 +21,11 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import date
 from pathlib import Path
 
 from src.config import get_settings
+from src.config.tiempo import hoy_mercado
 from src.pipeline.bronze import escribir_lote
 from src.sources import (
     banxico,
@@ -142,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
         "--date",
         dest="fecha",
         default=None,
-        help="Fecha del lote en YYYY-MM-DD (por defecto: hoy en UTC).",
+        help="Fecha del lote en YYYY-MM-DD (por defecto: hoy en hora de Ciudad de México, no del reloj UTC del contenedor).",
     )
     parser.add_argument(
         "--source",
@@ -165,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    fecha = date.fromisoformat(args.fecha) if args.fecha else datetime.now(UTC).date()
+    fecha = date.fromisoformat(args.fecha) if args.fecha else hoy_mercado()
     fuentes = args.fuentes or list(ADAPTADORES)
     raiz_bronze = Path(get_settings().bronze_path)
 

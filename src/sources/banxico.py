@@ -11,12 +11,13 @@ BANXICO publica una vez al mes es desperdicio puro.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from src.config import get_settings
 from src.config.banxico_series import SERIES, SIE_BASE_URL, SerieBanxico
 from src.config.tickers import VENTANA_HISTORICA_ANIOS
+from src.config.tiempo import hoy_mercado
 from src.sources.base import ResultadoFuente
 from src.sources.http import sesion_cacheada
 
@@ -72,7 +73,7 @@ def ingerir(
     # gold_macro_indicators exige (PRD §5.3), ni resolver el `macro_context`
     # de una noticia con fecha pasada. La ventana se alinea con la de precios
     # para que el JOIN temporal tenga las dos mitades cubiertas.
-    hasta = datetime.now(UTC).date()
+    hasta = hoy_mercado()  # fecha de jornada, no reloj UTC del contenedor
     dias = DIAS_DIARIO if modo == "diario" else 365 * VENTANA_HISTORICA_ANIOS
     desde = hasta - timedelta(days=dias)
     rango = f"{desde.strftime(FORMATO_FECHA_SIE)}/{hasta.strftime(FORMATO_FECHA_SIE)}"
