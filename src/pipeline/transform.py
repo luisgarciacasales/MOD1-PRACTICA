@@ -19,7 +19,12 @@ import json
 
 from src.config.banxico_series import SERIES_POR_ID
 from src.config.inegi_series import INDICADORES_POR_ID
-from src.config.tickers import BENCHMARK, FX_POR_TICKER
+from src.config.tickers import (
+    BENCHMARK,
+    FX_POR_TICKER,
+    MIN_EMISORAS_SECTOR,
+    SECTOR_EMISORA,
+)
 from src.pipeline import db
 
 # Dos decisiones dentro de esta consulta que conviene no perder de vista:
@@ -414,13 +419,50 @@ precio_multiplos AS (
     ) la ON TRUE
     WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA ni valor en libros
 ),
+sector_config AS (
+    SELECT UNNEST(%(sec_tickers)s::text[]) AS ticker,
+           UNNEST(%(sec_sectores)s::text[]) AS sector
+),
 con_multiplos AS (
-    SELECT ticker, date, adj_close, eps_ttm, eps_source, moneda_reporte, fx_aplicado,
-           CASE WHEN eps_ttm > 0 THEN adj_close / eps_ttm END AS pe_ratio,
-           book_value_per_share, book_source,
-           CASE WHEN book_value_per_share > 0
-                THEN adj_close / book_value_per_share END AS pb_ratio
-    FROM precio_multiplos
+    SELECT pm.ticker, pm.date, pm.adj_close, pm.eps_ttm, pm.eps_source,
+           pm.moneda_reporte, pm.fx_aplicado, sc.sector,
+           CASE WHEN pm.eps_ttm > 0 THEN pm.adj_close / pm.eps_ttm END AS pe_ratio,
+           pm.book_value_per_share, pm.book_source,
+           CASE WHEN pm.book_value_per_share > 0
+                THEN pm.adj_close / pm.book_value_per_share END AS pb_ratio
+    FROM precio_multiplos pm
+    LEFT JOIN sector_config sc ON sc.ticker = pm.ticker
+),
+-- La mediana por (sector, fecha) va en una CTE agregada aparte porque
+-- PERCENTILE_CONT es un agregado de conjunto ordenado, no una función de
+-- ventana: no se puede calcular en el mismo SELECT que el resto.
+mediana_sector AS (
+    SELECT sector, date,
+           COUNT(pe_ratio) AS n_pe,
+           COUNT(pb_ratio) AS n_pb,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pe_ratio) AS pe_mediana,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pb_ratio) AS pb_mediana
+    FROM con_multiplos
+    WHERE sector IS NOT NULL
+    GROUP BY sector, date
+),
+con_sector AS (
+    SELECT c.*,
+           CASE WHEN m.n_pe >= %(min_sector)s THEN m.n_pe END AS n_sector,
+           CASE WHEN m.n_pe >= %(min_sector)s THEN m.pe_mediana END AS pe_mediana_sector,
+           CASE WHEN m.n_pe >= %(min_sector)s AND m.pe_mediana > 0
+                THEN 100.0 * (c.pe_ratio / m.pe_mediana - 1) END AS pe_premium_sector_pct,
+           CASE WHEN m.n_pe >= %(min_sector)s AND c.pe_ratio IS NOT NULL
+                THEN RANK() OVER (PARTITION BY c.sector, c.date ORDER BY c.pe_ratio)
+                END::int AS pe_rank_sector,
+           CASE WHEN m.n_pb >= %(min_sector)s THEN m.pb_mediana END AS pb_mediana_sector,
+           CASE WHEN m.n_pb >= %(min_sector)s AND m.pb_mediana > 0
+                THEN 100.0 * (c.pb_ratio / m.pb_mediana - 1) END AS pb_premium_sector_pct,
+           CASE WHEN m.n_pb >= %(min_sector)s AND c.pb_ratio IS NOT NULL
+                THEN RANK() OVER (PARTITION BY c.sector, c.date ORDER BY c.pb_ratio)
+                END::int AS pb_rank_sector
+    FROM con_multiplos c
+    LEFT JOIN mediana_sector m ON m.sector = c.sector AND m.date = c.date
 ),
 con_z AS (
     SELECT *,
@@ -430,13 +472,15 @@ con_z AS (
            AVG(pb_ratio)         OVER w AS pb_media_1y,
            STDDEV_SAMP(pb_ratio) OVER w AS pb_desv_1y,
            COUNT(pb_ratio)       OVER w AS n_1y_pb
-    FROM con_multiplos
+    FROM con_sector
     WINDOW w AS (PARTITION BY ticker ORDER BY date ROWS BETWEEN 251 PRECEDING AND CURRENT ROW)
 )
 INSERT INTO gold_valuation (
     ticker, date, adj_close, eps_ttm, eps_source, pe_ratio, pe_zscore_1y,
     book_value_per_share, book_source, pb_ratio, pb_zscore_1y,
-    moneda_reporte, fx_aplicado, ingested_at
+    moneda_reporte, fx_aplicado,
+    sector, n_sector, pe_mediana_sector, pe_premium_sector_pct, pe_rank_sector,
+    pb_mediana_sector, pb_premium_sector_pct, pb_rank_sector, ingested_at
 )
 SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        CASE WHEN n_1y_pe >= 60 AND pe_desv_1y > 0
@@ -445,6 +489,8 @@ SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        CASE WHEN n_1y_pb >= 60 AND pb_desv_1y > 0
             THEN (pb_ratio - pb_media_1y) / pb_desv_1y END,
        moneda_reporte, fx_aplicado,
+       sector, n_sector, pe_mediana_sector, pe_premium_sector_pct, pe_rank_sector,
+       pb_mediana_sector, pb_premium_sector_pct, pb_rank_sector,
        NOW()
 FROM con_z
 WHERE pe_ratio IS NOT NULL
@@ -460,6 +506,14 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     pb_zscore_1y          = EXCLUDED.pb_zscore_1y,
     moneda_reporte        = EXCLUDED.moneda_reporte,
     fx_aplicado           = EXCLUDED.fx_aplicado,
+    sector                = EXCLUDED.sector,
+    n_sector              = EXCLUDED.n_sector,
+    pe_mediana_sector     = EXCLUDED.pe_mediana_sector,
+    pe_premium_sector_pct = EXCLUDED.pe_premium_sector_pct,
+    pe_rank_sector        = EXCLUDED.pe_rank_sector,
+    pb_mediana_sector     = EXCLUDED.pb_mediana_sector,
+    pb_premium_sector_pct = EXCLUDED.pb_premium_sector_pct,
+    pb_rank_sector        = EXCLUDED.pb_rank_sector,
     ingested_at           = NOW()
 RETURNING (xmax = 0)
 """
@@ -513,11 +567,16 @@ def ejecutar() -> int:
         fx_monedas = [FX_POR_TICKER[tk][0] for tk in fx_tickers]
         fx_series = [FX_POR_TICKER[tk][1] for tk in fx_tickers]
         cur.execute(_SQL_VALUATION_LIMPIAR, {"fx_tickers": fx_tickers})
+        sec_tickers = sorted(SECTOR_EMISORA)
+        sec_sectores = [SECTOR_EMISORA[tk] for tk in sec_tickers]
         cur.execute(_SQL_VALUATION, {
             "benchmark": BENCHMARK,
             "fx_tickers": fx_tickers,
             "fx_series": fx_series,
             "fx_monedas": fx_monedas,
+            "sec_tickers": sec_tickers,
+            "sec_sectores": sec_sectores,
+            "min_sector": MIN_EMISORAS_SECTOR,
         })
         v_nuevas, v_act = _contar(cur)
         conexion.commit()

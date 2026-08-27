@@ -240,6 +240,55 @@ SECTORES_VALIDOS: frozenset[str] = frozenset(SECTOR_A_PROXY)
 # Un ticker ausente de este mapa reporta en pesos y no se convierte. Lo que NO
 # se hace nunca es asumir factor 1 cuando falta el tipo de cambio: eso daría un
 # P/U veinte veces menor sin que nada lo delate. Sin FX no hay valuación.
+# --- Clasificación sectorial (26-ago-2026) ----------------------------------
+#
+# Para comparar múltiplos entre pares, no para el proxy de fintechs: SECTOR_A_PROXY
+# va en la dirección contraria (sector → ticker) y LEXICO_SECTORES clasifica TEXTO
+# de noticias. Son tres cosas distintas y conviene no confundirlas.
+#
+# El criterio no es la etiqueta GICS sino si los negocios son COMPARABLES por
+# múltiplo. Por eso `banca` agrupa a las seis que viven de margen financiero
+# sobre un balance de banco, y las otras cuatro financieras quedan cada una en
+# lo suyo: una aseguradora, una bolsa y una microfinanciera tienen estructuras
+# de capital y ROE tan distintos que su mediana conjunta no significaría nada.
+#
+# Consecuencia asumida: solo `banca` (6) y `consumo` (3) alcanzan el mínimo de
+# tres emisoras que exige `transform.py` para publicar comparación sectorial.
+# El resto se queda sin ella, que es preferible a inventar un par.
+SECTOR_EMISORA: dict[str, str] = {
+    # Banca — margen financiero sobre balance de banco. Las dos SIC entran
+    # porque su negocio SÍ es comparable, aunque su exposición a México esté
+    # diluida (ver la advertencia de EMISORAS_SIC más arriba).
+    "GFNORTEO.MX": "banca",
+    "BBAJIOO.MX": "banca",
+    "RA.MX": "banca",
+    "GFINBURO.MX": "banca",
+    "BBVA.MX": "banca",
+    "SANN.MX": "banca",
+    # Consumo — el comparable es más flojo que en banca (un retailer de
+    # autoservicio y una operadora de restaurantes no son idénticos), pero
+    # comparten ciclo de consumo mexicano y estructura de márgenes.
+    "WALMEX.MX": "consumo",
+    "ALSEA.MX": "consumo",
+    "FEMSAUBD.MX": "consumo",
+    # Materiales — n=2, por debajo del mínimo: no habrá comparación sectorial.
+    # Se declaran igual para que el día que entre una tercera funcione solo.
+    "CEMEXCPO.MX": "materiales",
+    "GMEXICOB.MX": "materiales",
+    # Sin par comparable en el universo actual.
+    "GENTERA.MX": "microfinanzas",
+    "Q.MX": "seguros",
+    "BOLSAA.MX": "infraestructura_mercado",
+    "ACTINVRB.MX": "gestion_activos",
+    "AMXB.MX": "telecomunicaciones",
+}
+
+# Mínimo de emisoras con múltiplo en un sector y fecha para publicar la
+# comparación. Con dos, el "par" es la otra emisora y la mediana es su promedio:
+# no informa de un sector, informa de un vecino.
+MIN_EMISORAS_SECTOR: int = 3
+
+
 # ticker -> (moneda de reporte, serie del SIE que la convierte a MXN)
 FX_POR_TICKER: dict[str, tuple[str, str]] = {
     "BBVA.MX": ("EUR", "SF46410"),
