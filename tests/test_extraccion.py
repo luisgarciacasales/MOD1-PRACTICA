@@ -316,8 +316,15 @@ def test_series_retiradas_de_la_configuracion_se_omiten():
 
     assert serie_vigente("SF43783") is True      # TIIE, vigente
     assert serie_vigente("SF61745") is True      # tasa objetivo, vigente
-    assert serie_vigente("SF46410") is False     # canasta del DEG, retirada
+    # SF46410 estuvo aquí como ejemplo de serie retirada hasta el 26-ago-2026,
+    # cuando volvió a la configuración con su nombre real (EUR/MXN) para
+    # convertir los estados financieros de BBVA.MX y SANN.MX. Se sustituye por
+    # otras dos que siguen retiradas, para no volver a atar el test a una serie
+    # que puede reincorporarse.
     assert serie_vigente("SF63528") is False     # tipo de cambio duplicado, retirada
+    assert serie_vigente("SF10770") is False     # recursos totales, no inflación
+    assert serie_vigente("SF617") is False       # recursos en moneda extranjera, no M1
+    assert serie_vigente("SF46410") is True      # EUR/MXN, reincorporada
     assert serie_vigente(None) is False
 
 
