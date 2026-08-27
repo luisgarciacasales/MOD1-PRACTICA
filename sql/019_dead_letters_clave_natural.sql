@@ -27,7 +27,15 @@
 -- sigue insertándose cada vez: es el comportamiento previo, y es preferible a
 -- inventar una clave que colapse rechazos distintos en uno.
 
--- 1. Backfill del guid en lo ya acumulado.
+-- 1. Soltar el índice único ANTES de poblar el guid. Sin esto el UPDATE falla
+--    a mitad: poblar la clave de 4.001 filas de yahoo_finance crea los
+--    duplicados que el paso 3 va a colapsar, pero el índice los rechaza en el
+--    instante en que aparecen. El orden correcto es soltar, poblar, colapsar y
+--    volver a crear — la 006 no tuvo que hacerlo porque entonces el índice aún
+--    no existía.
+DROP INDEX IF EXISTS uq_dead_letters_source_guid;
+
+-- 2. Backfill del guid en lo ya acumulado.
 UPDATE silver_dead_letters SET guid =
     CASE source
         WHEN 'yahoo_finance' THEN
@@ -49,7 +57,7 @@ WHERE guid IS NULL
 -- con NULL en SQL), así que las filas sin clave componible se quedan como
 -- estaban. No hace falta filtrarlas aparte.
 
--- 2. Colapsar los duplicados que el backfill acaba de hacer visibles. Mismo
+-- 3. Colapsar los duplicados que el backfill acaba de hacer visibles. Mismo
 --    procedimiento que la 006: se conserva el motivo/detalle/payload de la
 --    fila MÁS RECIENTE de cada (source, guid), y el contador acumula cuántas
 --    veces se había rechazado.
@@ -102,3 +110,9 @@ BEGIN
 
     RAISE NOTICE 'silver_dead_letters: % filas de mercado/macro colapsadas', total_colapsadas;
 END $$;
+
+-- 4. Restaurar el índice. A partir de aquí un (source, guid) repetido
+--    actualiza y suma times_rejected, también en mercado y macro.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dead_letters_source_guid
+    ON silver_dead_letters (source, guid)
+    WHERE guid IS NOT NULL;
