@@ -389,3 +389,43 @@ def test_dead_letter_de_fundamental_es_serializable_a_jsonb():
     )
     assert isinstance(r, DeadLetter)
     assert r.raw_payload["period_end"] == "2026-06-30"  # ISO, no objeto date
+
+
+# --- Clave natural de la cuarentena (27-ago-2026) ---------------------------
+
+
+def test_guid_natural_compone_la_clave_de_cada_fuente():
+    """Sin clave natural, mercado y macro reinsertan el mismo rechazo en cada
+    pasada — inofensivo con el lote diario, 120k filas al año con el refresco
+    histórico semanal."""
+    from src.contracts import guid_natural
+
+    assert guid_natural(
+        "yahoo_finance", {"ticker": "FEMSAUBD.MX", "date": "2026-04-22"}
+    ) == "FEMSAUBD.MX:2026-04-22"
+    assert guid_natural(
+        "banxico", {"series_id": "SF43886", "fecha": "03/12/2020", "dato": "N/E"}
+    ) == "SF43886:03/12/2020"
+    assert guid_natural(
+        "inegi", {"indicador_id": "910417", "periodo": "2020/01"}
+    ) == "910417:2020/01"
+
+
+def test_guid_natural_devuelve_none_si_falta_la_clave():
+    """Devolver None es legítimo: un registro sin su propia clave no tiene con
+    qué agregarse, y es preferible a inventar una que colapse rechazos
+    distintos en uno."""
+    from src.contracts import guid_natural
+
+    assert guid_natural("yahoo_finance", {"ticker": "WALMEX.MX"}) is None
+    assert guid_natural("yahoo_finance", {"ticker": None, "date": "2026-01-01"}) is None
+    assert guid_natural("banxico", {"series_id": "", "fecha": "01/01/2020"}) is None
+
+
+def test_guid_natural_ignora_las_fuentes_de_noticias():
+    """Las noticias traen su propio guid (SHA-256 de source+url+published_at)
+    calculado por su contrato; este mecanismo no debe pisarlo."""
+    from src.contracts import guid_natural
+
+    assert guid_natural("financiero", {"url": "https://x.mx/a", "title": "t"}) is None
+    assert guid_natural("bloomberg", {"url": "https://x.mx/b"}) is None

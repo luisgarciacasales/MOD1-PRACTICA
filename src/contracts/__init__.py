@@ -27,10 +27,11 @@ from src.contracts.news import (
     es_macro,
     validar_noticia,
 )
-from src.contracts.rejections import DeadLetter, RejectionReason
+from src.contracts.rejections import DeadLetter, RejectionReason, guid_natural
 
 __all__ = [
     "DeadLetter",
+    "guid_natural",
     "FintechDictEntry",
     "Fundamental",
     "MacroIndicator",

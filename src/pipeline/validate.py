@@ -39,6 +39,7 @@ from src.contracts import (
     validar_macro,
     validar_noticia,
     validar_precio,
+    guid_natural,
 )
 from src.pipeline import db
 from src.pipeline.bronze import leer_lote, leer_metadata, listar_lotes
@@ -330,6 +331,12 @@ def procesar_lote(
             continue
 
         if isinstance(resultado, DeadLetter):
+            # Un solo punto para todas las fuentes: aquí se conocen el `source`
+            # real del lote y el payload crudo, que es justo lo que hace falta
+            # para componer la clave natural. Los contratos de noticias ya
+            # traen su guid calculado, y ese no se toca.
+            if resultado.guid is None:
+                resultado.guid = guid_natural(source, crudo)
             rechazos.append(resultado)
             motivos[resultado.rejection_reason.value] += 1
         else:
