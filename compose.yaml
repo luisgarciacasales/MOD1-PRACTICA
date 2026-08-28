@@ -95,12 +95,16 @@ services:
       - "host.docker.internal:host-gateway"
 
     # Montado en /run/secrets/anthropic_api_key (tmpfs, solo dentro del
-    # contenedor). Declarado como `required: false` para que el servicio
-    # arranque en un servidor donde la clave todavía no se ha depositado — el
-    # pipeline entero salvo el brief funciona sin ella.
+    # contenedor).
+    #
+    # OJO: Compose v5.2 NO admite `required: false` en secretos (verificado el
+    # 27-ago-2026 — lo rechaza tanto en la referencia del servicio como en el
+    # bloque de nivel superior), así que EL FICHERO DEBE EXISTIR o `compose up`
+    # falla. Puede estar VACÍO: `settings.clave_anthropic` devuelve cadena
+    # vacía y solo la etapa del brief se queja; el resto del pipeline arranca
+    # igual. Un servidor sin clave crea el fichero vacío y sigue.
     secrets:
-      - source: anthropic_api_key
-        required: false
+      - anthropic_api_key
 
     environment:
       PROJECT_ROOT: /app
