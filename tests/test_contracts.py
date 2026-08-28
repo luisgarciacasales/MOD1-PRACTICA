@@ -465,7 +465,17 @@ def test_clave_anthropic_cae_a_la_variable_si_el_fichero_no_existe():
 
 
 def test_clave_anthropic_vacia_no_revienta():
-    """El brief es una etapa opcional: sin clave el resto del pipeline sigue."""
+    """El brief es una etapa opcional: sin clave el resto del pipeline sigue.
+
+    Ambos campos se pasan explícitamente en vez de confiar en un entorno
+    limpio: dentro del contenedor `ANTHROPIC_API_KEY_FILE` SÍ está definida
+    —apunta al secreto montado— y pydantic-settings la recoge del entorno, así
+    que un `Settings(postgres_password="x")` a secas leería la clave real y el
+    test fallaría por dónde corre, no por lo que comprueba.
+    """
     from src.config.settings import Settings
 
-    assert Settings(postgres_password="x").clave_anthropic == ""
+    s = Settings(
+        postgres_password="x", anthropic_api_key="", anthropic_api_key_file=None
+    )
+    assert s.clave_anthropic == ""
