@@ -68,3 +68,9 @@ pytest~=8.3
 python-dotenv~=1.0
 tenacity~=9.0          # reintentos con backoff: ingesta fail-soft por fuente
 structlog~=24.4        # logging estructurado, legible en `docker compose logs`
+
+# 27-ago-2026 (F4) — SDK oficial de Anthropic para el brief ejecutivo semanal.
+# Única dependencia de un modelo comercial del proyecto: el NLP masivo sigue
+# resolviéndose en local contra lab-ollama (política FinOps de CLAUDE.md, que
+# documenta por qué se autoriza esta excepción y con qué límites).
+anthropic~=0.116
