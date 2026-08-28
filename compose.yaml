@@ -94,6 +94,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+    # Montado en /run/secrets/anthropic_api_key (tmpfs, solo dentro del
+    # contenedor). Declarado como `required: false` para que el servicio
+    # arranque en un servidor donde la clave todavía no se ha depositado — el
+    # pipeline entero salvo el brief funciona sin ella.
+    secrets:
+      - source: anthropic_api_key
+        required: false
+
     environment:
       PROJECT_ROOT: /app
       PYTHONPATH: /app
@@ -125,6 +133,12 @@ services:
       # --- Fuentes externas ---
       BANXICO_TOKEN: ${BANXICO_TOKEN:-}
       INEGI_TOKEN: ${INEGI_TOKEN:-}
+
+      # --- Claude API: brief ejecutivo (F4) ---
+      # La clave NO viaja como variable de entorno: se monta como secreto y
+      # aquí solo va la RUTA. Ver el bloque `secrets:` al final del archivo.
+      ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
+      ANTHROPIC_MODEL_BRIEF: ${ANTHROPIC_MODEL_BRIEF:-claude-opus-5}
       REQUESTS_CACHE_PATH: ${REQUESTS_CACHE_PATH:-/app/data/cache/requests_cache.sqlite}
       CACHE_TTL_MARKET_SECONDS: ${CACHE_TTL_MARKET_SECONDS:-86400}
       CACHE_TTL_MACRO_SECONDS: ${CACHE_TTL_MACRO_SECONDS:-604800}
@@ -223,6 +237,28 @@ services:
     #
     # Sin GPU la inferencia corre en CPU y el enriquecimiento tarda del orden
     # de diez veces más. Funciona, pero no cumple los SLA del PRD §7.
+
+# --- Secretos ---------------------------------------------------------------
+#
+# Un fichero fuera de TODO árbol de repositorio, con una sola copia en el host.
+# Fuera del repo la protección es estructural: no depende de que una línea de
+# .gitignore siga siendo correcta. Y como se monta en /run/secrets (tmpfs) en
+# vez de inyectarse en el entorno, no aparece en `docker inspect`, no está en
+# /proc/<pid>/environ y no la heredan los procesos hijo.
+#
+# Lo crea el usuario A MANO, igual que el .env (invariante 3):
+#
+#   mkdir -p ~/augmented/secrets && chmod 700 ~/augmented/secrets
+#   nano   ~/augmented/secrets/anthropic_api_key   # solo la clave, sin nombre=
+#   chmod 600 ~/augmented/secrets/anthropic_api_key
+#
+# Vive fuera de services/ a propósito: los ocho servicios del laboratorio
+# comparten una sola copia, así que rotar la clave es editar un archivo, no
+# ocho. Duplicarla por servicio es lo que hace que una rotación deje claves
+# muertas olvidadas en disco.
+secrets:
+  anthropic_api_key:
+    file: ${ANTHROPIC_SECRET_PATH:-${HOME}/augmented/secrets/anthropic_api_key}
 
 volumes:
   pgdata:

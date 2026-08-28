@@ -429,3 +429,43 @@ def test_guid_natural_ignora_las_fuentes_de_noticias():
 
     assert guid_natural("financiero", {"url": "https://x.mx/a", "title": "t"}) is None
     assert guid_natural("bloomberg", {"url": "https://x.mx/b"}) is None
+
+
+# --- Secreto de la API de Claude (27-ago-2026) ------------------------------
+
+
+def test_clave_anthropic_prefiere_el_fichero_montado(tmp_path, monkeypatch):
+    """Si el secreto está montado, esa es la fuente buena: una variable de
+    entorno heredada no debe pisarlo."""
+    from src.config.settings import Settings
+
+    secreto = tmp_path / "anthropic_api_key"
+    secreto.write_text("sk-ant-del-fichero\n", encoding="utf-8")
+    s = Settings(
+        postgres_password="x",
+        anthropic_api_key="sk-ant-de-la-variable",
+        anthropic_api_key_file=secreto,
+    )
+    assert s.clave_anthropic == "sk-ant-del-fichero"
+
+
+def test_clave_anthropic_cae_a_la_variable_si_el_fichero_no_existe():
+    """Secreto declarado pero no montado: se cae a la variable en vez de
+    reventar el arranque de todo el pipeline."""
+    from pathlib import Path
+
+    from src.config.settings import Settings
+
+    s = Settings(
+        postgres_password="x",
+        anthropic_api_key="sk-ant-de-la-variable",
+        anthropic_api_key_file=Path("/run/secrets/no-montado"),
+    )
+    assert s.clave_anthropic == "sk-ant-de-la-variable"
+
+
+def test_clave_anthropic_vacia_no_revienta():
+    """El brief es una etapa opcional: sin clave el resto del pipeline sigue."""
+    from src.config.settings import Settings
+
+    assert Settings(postgres_password="x").clave_anthropic == ""
