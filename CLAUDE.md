@@ -51,7 +51,18 @@ Claude descubre automáticamente los skills en `.claude/skills/`. Usa el que cor
 *   **Enrutamiento de Modelos (Model Routing):** 
     *   **Inferencia Local (Costo Cero):** Todo el procesamiento masivo de texto, NLP, clasificación de tonos, chunking y análisis de discursos de la FED debe resolverse estrictamente de forma local usando Ollama (`OLLAMA_BASE_URL` en `mi-pc` con la RTX 5080). Está prohibido consumir tokens de API comerciales en tareas por lotes.
     *   **Desarrollo de Código (Bajo Costo):** Utiliza modelos económicos (como DeepSeek a través de Opencode) para la generación rutinaria de scripts de Python, pruebas y refactorizaciones.
-    *   **Arquitectura / Debugging Crítico (Claude):** Reserva la capacidad de Claude Platform exclusivamente para diseño arquitectónico de alto nivel, resolución de bloqueos complejos de lógica o auditorías donde los modelos económicos hayan fallado.
+    *   **Arquitectura / Debugging Crítico (Claude):** Reserva la capacidad de Claude Platform para diseño arquitectónico de alto nivel, resolución de bloqueos complejos de lógica o auditorías donde los modelos económicos hayan fallado.
+    *   **Síntesis narrativa de bajo volumen (Claude) — añadido el 27-ago-2026.** El brief ejecutivo semanal por sector (F4) se redacta con Claude. Es la **única** llamada a un modelo comercial de todo el pipeline; el NLP masivo —NER, sentimiento, M&A, fintech tagging sobre miles de noticias— sigue resolviéndose en local contra `lab-ollama`, y esa regla no se toca.
+
+        *Por qué se autoriza.* Se comparó empíricamente el brief generado por `mistral-small:22b` local contra uno de Claude sobre datos reales de GFNORTEO.MX. Con un buen prompt el modelo local hace la síntesis correcta y cita cifras exactas — la brecha la cerró el prompt, no el modelo. Lo que no replica es el **juicio de dominio**: saber que el deterioro del crédito al consumo aflora en la línea de estimaciones preventivas y en qué trimestre se reporta. En un brief por emisora ese juicio cabe en una frase; en el **transversal** —comparar emisoras, decidir qué merece la atención del comité— es el producto entero.
+
+        *Límites que hacen que esto no sea una puerta abierta.*
+        - **Solo el brief semanal sectorial.** El brief diario por emisora, si se construye, va en local: es una plantilla, y el experimento mostró que el local la rellena bien y gratis.
+        - **~4 llamadas al mes (~$0,05).** Si el volumen previsto sube de forma material, vuelve a ser una decisión, no un precedente.
+        - **Clave con techo.** Workspace dedicado en la consola de Anthropic con límite de $20/mes, más un contador de llamadas por corrida en el código que aborte antes de llegar ahí. El techo del workspace es la red de seguridad, no el control primario.
+        - **La clave nunca es variable de entorno.** Se monta como secreto de Docker desde `~/augmented/secrets/` (fuera de todo árbol de repositorio, una sola copia compartida por los servicios del laboratorio). Ver `compose.yaml` y `settings.clave_anthropic`.
+
+        *Y una restricción de contenido que impone F3.* El backtest del 27-ago-2026 demostró que las señales de valuación **no** anticipan retorno futuro. El brief describe la posición de valuación; no recomienda comprar, vender ni mantener. Toda afirmación predictiva necesita antes su propio backtest.
 *   **Gestión de Contexto y Ventanas:** 
     *   Para evitar truncamientos silenciosos (como el error histórico del 31% del corpus detectado en agosto de 2026), toda llamada a Ollama que procese discursos largos debe configurar explícitamente `num_ctx=16384`.
     *   No envíes historiales de chat masivos ni logs innecesarios en las llamadas de API para optimizar el consumo de tokens y proteger el presupuesto mensual.
