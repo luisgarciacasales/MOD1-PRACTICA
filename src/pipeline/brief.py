@@ -63,7 +63,9 @@ SELECT v.sector, v.ticker, v.date,
 FROM gold_valuation v, ultimo
 WHERE v.date = ultimo.d
   AND v.n_sector >= %(min_sector)s
-  AND (%(sector)s IS NULL OR v.sector = %(sector)s)
+  -- El cast es necesario: con el parámetro a NULL, Postgres no puede
+  -- inferir su tipo y falla con AmbiguousParameter.
+  AND (%(sector)s::text IS NULL OR v.sector = %(sector)s::text)
 ORDER BY v.sector, v.pe_rank_sector NULLS LAST
 """
 
