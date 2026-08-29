@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -250,6 +250,9 @@ evidencia: ## Copia el informe de evidencia a docs/ (solo MODO=remoto)
 	$(call exige_remoto,en local el informe ya está en data/evidencia_e2e.md)
 	scp $(REMOTE):$(REMOTE_DIR)/data/evidencia_e2e.md ./docs/EVIDENCIA_E2E.md
 	@echo "Escrito en docs/EVIDENCIA_E2E.md — versionado como entregable"
+
+calidad: ## Vigilancia de calidad de datos (distinto de verify: aquí no se pregunta si está terminado, sino si los datos son creíbles)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.calidad'
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'
