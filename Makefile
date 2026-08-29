@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief search demo evidencia bronze migrate test verify
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -216,6 +216,9 @@ refresco: ## Refresco histórico SEMANAL (recoge el reajuste de Adj Close por di
 
 bronze: ## Inventario de lotes en Bronze
 	$(RUN) 'cd $(DIR) && find data/bronze -name metadata.json -printf "%h\n" 2>/dev/null | sed "s|data/bronze/||" | sort || echo "(Bronze vacío)"'
+
+backfill-fund: ## Carga fundamentales desde PDF (uso: ARGS="--dir ... --ticker ... --dry-run")
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.backfill_fundamentales $(ARGS)'
 
 brief: ## F4 — brief ejecutivo SEMANAL por sector (uso: make brief ARGS=--dry-run)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.brief $(ARGS)'
