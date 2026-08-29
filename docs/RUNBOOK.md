@@ -167,6 +167,46 @@ decir que el histórico ya estaba completo y solo se refrescaron los ajustes.
 
 ---
 
+## El brief ejecutivo (semanal)
+
+```bash
+make brief
+```
+
+Escribe `data/briefs/YYYY-MM-DD_sectorial.md` y cuesta unos **$0,08**. Es la
+única etapa que llama a un modelo comercial; todo lo demás corre en local (ver
+la política FinOps de `CLAUDE.md`, que documenta por qué se autoriza y con qué
+límites).
+
+**Antes de gastar, mira el contexto:**
+
+```bash
+make brief ARGS=--dry-run     # no llama al modelo, no cuesta nada
+```
+
+**Control de gasto.** Hay tres capas, y conviene saber cuál es cuál:
+
+| capa | qué corta | dónde |
+|---|---|---|
+| `MAX_LLAMADAS_POR_CORRIDA` | un bucle dentro de una corrida | código |
+| Tope mensual ($5 de aviso en $2) | la deriva a lo largo del mes | código |
+| Techo del workspace ($20) | red de seguridad | consola de Anthropic |
+
+```bash
+make brief ARGS=--gasto       # historial y acumulado del mes
+```
+
+Si alguna vez salta el tope de $5, **no lo subas sin mirar**: con cadencia
+semanal lo normal son ~$0,32 al mes, así que alcanzarlo significa que algo
+cambió — creció el contexto, o se está llamando más de la cuenta.
+
+> El brief **describe** dónde cotiza cada emisora; no recomienda comprar ni
+> vender. El backtest de F3 midió que estas señales no anticipan retorno, así
+> que presentarlas como oportunidad contradiría la evidencia del propio
+> sistema.
+
+---
+
 ## Cómo saber si fue bien
 
 El código de salida distingue tres casos. Para verlo:
@@ -255,6 +295,9 @@ make gpu                      # VRAM y uso de la RTX 5080
 make ollama                   # modelos cargados en el lab-ollama compartido
 make bronze                   # inventario de lotes en Bronze (qué días tienen datos)
 make refresco                 # refresco histórico SEMANAL de precios y macro
+make brief                    # brief ejecutivo semanal por sector (F4)
+make brief ARGS=--dry-run     # arma el contexto SIN llamar al modelo ni gastar
+make brief ARGS=--gasto       # historial de coste del brief y tope del mes
 make search Q="tasas de Banxico"     # búsqueda semántica
 make psql                     # consola SQL interactiva contra Silver/Gold
 make help                     # todos los targets
