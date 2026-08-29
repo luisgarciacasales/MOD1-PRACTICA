@@ -40,8 +40,15 @@ Esquema exacto de la respuesta:
 }
 
 Reglas:
-- Un ticker solo se incluye si la noticia trata SOBRE esa emisora, no si la \
-menciona de pasada.
+- Incluye un ticker cuando la noticia AFECTA AL NEGOCIO de esa emisora, aunque \
+el sujeto de la nota sea otro. Cuentan: resultados, productos, fallas de \
+servicio, alianzas, regulación que la toca, y hechos sobre sus marcas o \
+filiales (una caída de Telcel es un hecho de América Móvil; una alianza con \
+Hey Banco lo es de Banregio).
+- NO la incluyas cuando solo aparece como patrocinador o en marketing \
+(festivales, documentales, estadios, torneos), como fuente que publica un \
+dato, o dentro de un listado genérico de un trámite que no la distingue de \
+las demás.
 - El sentimiento es el del impacto ESPERADO EN EL MERCADO, no el tono \
 periodístico: un despido masivo puede ser positivo para la acción.
 - Si la noticia no es financiera, devuelve listas vacías y sentimiento neutral \
