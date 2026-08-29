@@ -122,10 +122,16 @@ ORDER BY series_id, date DESC
 """
 
 
+# El mes se cuenta en hora de MERCADO, no en UTC. `ejecutado_at` es un instante
+# y por eso se guarda en UTC (doctrina de src/config/tiempo.py), pero "el gasto
+# de este mes" es una etiqueta de calendario: con date_trunc sobre UTC, un brief
+# del 31 de agosto por la tarde en CDMX contaría contra septiembre y el tope se
+# reiniciaría un día antes de tiempo.
 _SQL_GASTO_DEL_MES = """
 SELECT COALESCE(SUM(usd_lista), 0)::float AS usd, COUNT(*) AS corridas
 FROM gold_brief_ejecuciones
-WHERE date_trunc('month', ejecutado_at) = date_trunc('month', NOW())
+WHERE date_trunc('month', ejecutado_at AT TIME ZONE 'America/Mexico_City')
+    = date_trunc('month', NOW() AT TIME ZONE 'America/Mexico_City')
 """
 
 _SQL_REGISTRAR = """
@@ -290,7 +296,8 @@ def _mostrar_gasto() -> int:
     """Historial de corridas y coste. No llama al modelo ni gasta nada."""
     with db.conectar() as cx, cx.cursor() as cur:
         cur.execute("""
-            SELECT ejecutado_at::date, fecha_cierre, modelo, n_noticias,
+            SELECT (ejecutado_at AT TIME ZONE 'America/Mexico_City')::date,
+                   fecha_cierre, modelo, n_noticias,
                    tokens_entrada, tokens_salida, usd_lista
             FROM gold_brief_ejecuciones ORDER BY ejecutado_at DESC LIMIT 15
         """)
