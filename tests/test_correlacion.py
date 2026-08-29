@@ -89,14 +89,37 @@ def test_ticker_directo_del_ner():
     assert r[0]["proxy_ticker"] is None
 
 
-def test_une_ner_y_lexico():
-    """El PRD §5.3 dice 'ticker detectado por NER o fuente'."""
+def test_el_ner_manda_sobre_el_lexico():
+    """DIVERGENCIA CONSCIENTE con el PRD §5.3, que dice 'ticker detectado por
+    NER **o** fuente' — es decir, la unión. Este test probaba esa unión hasta el
+    28-ago-2026.
+
+    Se cambió por medición: 178 correlaciones venían solo del léxico y en
+    muestra aleatoria de 22 unas 14 eran ruido ("Banorte ÉPICO 2026: festival
+    gastronómico", "¿Qué premios ganó México con el Campeonato Sub-20?",
+    "Lactancia materna"). Ninguna es un error de coincidencia de cadenas: la
+    noticia SÍ menciona a la emisora, pero no trata de ella como instrumento
+    cotizado — distinción que una búsqueda de subcadenas no puede hacer y que el
+    NER sí hizo, devolviendo vacío en todas.
+
+    El "o" del PRD se escribió cuando el NER cubría 1 emisora frente a 7 del
+    léxico. Hoy cubre 266 noticias frente a 389, y el coste del "o" supera a su
+    beneficio. Ver docs/HARNESS.md.
+    """
     r = objetivos(fila(ner_tickers=["GFNORTEO.MX"], lex_tickers=["WALMEX.MX"]), FINTECHS)
-    assert [x["ticker"] for x in r] == ["GFNORTEO.MX", "WALMEX.MX"]
+    assert [x["ticker"] for x in r] == ["GFNORTEO.MX"]
+
+
+def test_el_lexico_cubre_cuando_el_ner_no_se_pronuncio():
+    """`None` y `[]` NO son lo mismo: None es "el NER nunca corrió sobre esta
+    noticia" y [] es "corrió y dictaminó que no hay emisora". Solo el segundo
+    veto es respetable."""
+    r = objetivos(fila(ner_tickers=None, lex_tickers=["WALMEX.MX"]), FINTECHS)
+    assert [x["ticker"] for x in r] == ["WALMEX.MX"]
 
 
 def test_descarta_tickers_fuera_del_universo():
-    r = objetivos(fila(lex_tickers=["AAPL", "GFNORTEO.MX"]), FINTECHS)
+    r = objetivos(fila(ner_tickers=["AAPL", "GFNORTEO.MX"]), FINTECHS)
     assert [x["ticker"] for x in r] == ["GFNORTEO.MX"]
 
 
@@ -117,7 +140,7 @@ def test_directo_y_proxy_conviven_si_son_emisoras_distintas():
     señales distintas —impacto directo e impacto sectorial— y perder la segunda
     dejaría el proxy sin usar."""
     r = objetivos(
-        fila(lex_tickers=["FEMSAUBD.MX"], lex_entities=["Mercado Pago"],
+        fila(ner_tickers=["FEMSAUBD.MX"], lex_entities=["Mercado Pago"],
              lex_sector="pagos_digitales"),
         FINTECHS | {"Mercado Pago"},
     )
@@ -137,7 +160,7 @@ def test_el_proxy_no_duplica_un_ticker_ya_directo():
     (BBAJIOO.MX); tras la ampliación del universo los demás tienen varios.
     """
     r = objetivos(
-        fila(lex_tickers=["BBAJIOO.MX"], fintechs_identified=["Nu"],
+        fila(ner_tickers=["BBAJIOO.MX"], fintechs_identified=["Nu"],
              sector_affected="credito_automotriz"),  # su único proxy es BBAJIOO.MX
         FINTECHS,
     )
@@ -148,7 +171,7 @@ def test_el_proxy_no_duplica_un_ticker_ya_directo():
 def test_proxy_parcial_cuando_solo_uno_coincide():
     """banca_consumo mapea a tres emisoras; si una ya es directa, entran las otras."""
     r = objetivos(
-        fila(lex_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
+        fila(ner_tickers=["GFNORTEO.MX"], fintechs_identified=["Nu"],
              sector_affected="banca_consumo"),
         FINTECHS,
     )
