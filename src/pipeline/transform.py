@@ -502,9 +502,11 @@ con_sector AS (
                 THEN RANK() OVER (PARTITION BY c.sector, c.date ORDER BY c.pb_ratio)
                 END::int AS pb_rank_sector,
            CASE WHEN m.n_roe >= %(min_sector)s THEN m.roe_mediana END AS roe_mediana_sector,
-           -- En PUNTOS PORCENTUALES, no en porcentaje relativo: "23% contra una
-           -- mediana de 15%" se lee como +8 pp, y decir "+53%" invita a
-           -- confundirlo con el ROE mismo.
+           -- En PUNTOS PORCENTUALES, no en variacion relativa: un ROE de 23
+           -- contra una mediana de 15 se lee como +8 pp; decir "+53 por
+           -- ciento" invita a confundirlo con el ROE mismo.
+           -- (Sin el simbolo de porcentaje: psycopg lo leeria como un
+           -- placeholder incompleto y la consulta entera revienta.)
            CASE WHEN m.n_roe >= %(min_sector)s
                 THEN c.roe_anualizado - m.roe_mediana END AS roe_vs_sector_pp
     FROM con_multiplos c
