@@ -54,6 +54,12 @@ HORIZONTE_DIAS = 5
 # falta de historia, no de calendario.
 MAX_DIAS_BRECHA_PRECIO = 10
 
+# Cuando el NER ya se pronunció sobre una noticia, su veredicto manda sobre el
+# del léxico. Ponerlo en False restaura la unión de ambas fuentes, que es como
+# funcionó hasta el 28-ago-2026 — el interruptor existe para poder revertir en
+# un despliegue si los números no acompañan, no porque haya duda.
+CONFIAR_EN_NER = True
+
 _SQL_NOTICIAS = """
 SELECT g.guid,
        (g.published_at AT TIME ZONE 'America/Mexico_City')::date AS news_date,
@@ -95,6 +101,22 @@ RETURNING (xmax = 0) AS insertada
 """
 
 
+# Un UPSERT solo actualiza lo que la consulta vuelve a visitar, así que las
+# correlaciones calculadas bajo la regla vieja se quedarían inertes en Gold
+# pareciendo vigentes. Se borran antes de recalcular.
+#
+# Es reversible sin pérdida: poner CONFIAR_EN_NER a False y reprocesar las
+# regenera desde silver_news + gold_enriched_news, que no se tocan.
+_SQL_LIMPIAR_SOLO_LEXICO = """
+DELETE FROM gold_news_market_corr c
+USING gold_enriched_news g
+WHERE g.guid = c.news_guid
+  AND NOT c.is_proxy
+  AND g.ner_tickers IS NOT NULL
+  AND NOT (c.ticker = ANY(g.ner_tickers))
+"""
+
+
 def objetivos(fila: dict[str, Any], fintechs_conocidas: set[str]) -> list[dict[str, Any]]:
     """Contra qué tickers se debe correlacionar esta noticia.
 
@@ -108,10 +130,34 @@ def objetivos(fila: dict[str, Any], fintechs_conocidas: set[str]) -> list[dict[s
     sobre Banorte cuando la noticia ya habla de Banorte no añade información, y
     además chocaría con la clave única (news_guid, ticker, price_date).
     """
-    directos = {
-        t for t in (fila["ner_tickers"] or []) + (fila["lex_tickers"] or [])
-        if t in TICKERS_VALIDOS
-    }
+    # El léxico solo cuenta cuando el NER NO se pronunció sobre esta noticia.
+    #
+    # Medido el 28-ago-2026: 170 correlaciones venían solo del léxico y en
+    # muestra aleatoria la mitad era ruido — «Banorte Epico, el evento de cocina
+    # más exclusivo», «Jornada 3 de Liga MX Femenil» (por Liga BBVA MX),
+    # «Banamex, BBVA y Santander alegran a los pensionados del ISSSTE». Ninguna
+    # es un error de coincidencia de cadenas: la noticia SÍ menciona al banco.
+    # Lo que ocurre es que no trata de él como emisora cotizada, y eso una
+    # búsqueda de subcadenas no lo puede distinguir.
+    #
+    # En todas ellas el NER devolvió vacío. Es decir: el LLM ya juzgó la
+    # relevancia —que es justamente para lo que sirve— y la unión con el léxico
+    # estaba pisando ese juicio. Dos tercios de ese ruido no cae en ningún
+    # patrón capturable con reglas, así que un léxico de exclusión no era
+    # alternativa: se probó y cubría 15 de ~85.
+    #
+    # El léxico NO se retira: sigue siendo la única fuente para las noticias que
+    # el NER no procesó, y sobre el corpus actual aporta un tercio de la
+    # cobertura. Solo deja de tener voto donde el NER ya la tiene.
+    ner = {t for t in (fila["ner_tickers"] or []) if t in TICKERS_VALIDOS}
+    lex = {t for t in (fila["lex_tickers"] or []) if t in TICKERS_VALIDOS}
+
+    if not CONFIAR_EN_NER:
+        directos = ner | lex                      # unión, como hasta el 28-ago
+    elif fila["ner_tickers"] is not None:
+        directos = ner                            # el NER opinó: su veredicto manda
+    else:
+        directos = lex                            # el NER no corrió: cubre el léxico
     salida = [
         {"ticker": t, "is_proxy": False, "proxy_ticker": None,
          "original_fintech": None, "sector_affected": None}
@@ -198,6 +244,12 @@ def ejecutar(*, fecha: date | None) -> int:
             return 1
 
         print(f"[correlate] {len(noticias)} noticias · calendario XMEX")
+
+        if CONFIAR_EN_NER:
+            cur.execute(_SQL_LIMPIAR_SOLO_LEXICO)
+            if cur.rowcount:
+                print(f"[correlate] {cur.rowcount} correlaciones solo-léxico "
+                      "retiradas (el NER ya se había pronunciado)")
 
         # El contexto macro se cachea por fecha: decenas de noticias comparten
         # día y la consulta es idéntica para todas.
