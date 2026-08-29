@@ -20,7 +20,7 @@ distinga de qué serie vino cada rechazo, igual que cualquier otra fuente.
 from __future__ import annotations
 
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
@@ -56,6 +56,15 @@ class Fundamental(BaseModel):
     # Flujo de efectivo
     flujo_operativo: float | None = None
     flujo_libre: float | None = None
+
+    # Origen del dato, para que la precedencia entre fuentes viva EN LOS DATOS
+    # y no en el orden en que se corran los comandos (29-ago-2026). El backfill
+    # desde los PDF de resultados era efímero: `validate --todo` revalida todo
+    # Bronze y devolvía la fila a los valores de Yahoo, así que cada `verify`
+    # —que corre validate --todo por dentro— lo deshacía. Con este campo, el
+    # UPSERT de `yahoo` no pisa una fila de `reporte_pdf`; ver
+    # sql/022_fundamentales_fuente.sql y _SQL_FUNDAMENTALES en db.py.
+    fuente: Literal["yahoo", "reporte_pdf"] = "yahoo"
 
     ingested_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     raw_batch_uuid: UUID

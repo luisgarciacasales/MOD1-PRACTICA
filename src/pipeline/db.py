@@ -31,18 +31,27 @@ from src.contracts import (
 @dataclass
 class Carga:
     """Resultado de una carga. `nuevas == 0` tras un reproceso es el criterio
-    de idempotencia del PRD §8."""
+    de idempotencia del PRD §8.
+
+    `preservadas` cuenta las filas que el UPSERT dejó intactas a propósito
+    porque la de la base viene de una fuente con precedencia (hoy, un dato de
+    `reporte_pdf` que un lote de `yahoo` intentó pisar). No son actualizaciones
+    —no se escribió nada— y contarlas como tales ocultaría justo lo que hay que
+    ver: cuánto del lote entrante quedó descartado por precedencia."""
 
     nuevas: int = 0
     actualizadas: int = 0
+    preservadas: int = 0
 
     @property
     def total(self) -> int:
+        """Filas efectivamente escritas. Excluye `preservadas` por definición."""
         return self.nuevas + self.actualizadas
 
     def __iadd__(self, otra: Carga) -> Carga:
         self.nuevas += otra.nuevas
         self.actualizadas += otra.actualizadas
+        self.preservadas += otra.preservadas
         return self
 
 
@@ -96,12 +105,12 @@ _SQL_FUNDAMENTALES = """
 INSERT INTO silver_fundamentals (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
     activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
-    flujo_operativo, flujo_libre, ingested_at, raw_batch_uuid
+    flujo_operativo, flujo_libre, fuente, ingested_at, raw_batch_uuid
 ) VALUES (
     %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
     %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
     %(capital_contable)s, %(acciones_en_circulacion)s,
-    %(flujo_operativo)s, %(flujo_libre)s,
+    %(flujo_operativo)s, %(flujo_libre)s, %(fuente)s,
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
@@ -113,7 +122,15 @@ ON CONFLICT (ticker, period_end) DO UPDATE SET
     capital_contable        = EXCLUDED.capital_contable,
     acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
     flujo_operativo         = EXCLUDED.flujo_operativo,
-    flujo_libre             = EXCLUDED.flujo_libre
+    flujo_libre             = EXCLUDED.flujo_libre,
+    fuente                  = EXCLUDED.fuente
+-- Un dato del agregador NO pisa uno del reporte oficial de la emisora.
+-- Sin esta condición el backfill desde PDF era efímero: `validate --todo`
+-- revalida todo Bronze y devolvía la fila a los valores de Yahoo, así que
+-- cada `verify` (que corre validate --todo por dentro) lo deshacía. Ver
+-- sql/022_fundamentales_fuente.sql para el experimento que lo demostró.
+WHERE silver_fundamentals.fuente <> 'reporte_pdf'
+   OR EXCLUDED.fuente = 'reporte_pdf'
 RETURNING (xmax = 0)
 """
 
@@ -125,12 +142,12 @@ _SQL_FUNDAMENTALES_ANUAL = """
 INSERT INTO silver_fundamentals_anual (
     ticker, period_end, ingresos_totales, utilidad_neta, utilidad_por_accion,
     activo_total, pasivo_total, capital_contable, acciones_en_circulacion,
-    flujo_operativo, flujo_libre, ingested_at, raw_batch_uuid
+    flujo_operativo, flujo_libre, fuente, ingested_at, raw_batch_uuid
 ) VALUES (
     %(ticker)s, %(period_end)s, %(ingresos_totales)s, %(utilidad_neta)s,
     %(utilidad_por_accion)s, %(activo_total)s, %(pasivo_total)s,
     %(capital_contable)s, %(acciones_en_circulacion)s,
-    %(flujo_operativo)s, %(flujo_libre)s,
+    %(flujo_operativo)s, %(flujo_libre)s, %(fuente)s,
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
@@ -142,7 +159,10 @@ ON CONFLICT (ticker, period_end) DO UPDATE SET
     capital_contable        = EXCLUDED.capital_contable,
     acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
     flujo_operativo         = EXCLUDED.flujo_operativo,
-    flujo_libre             = EXCLUDED.flujo_libre
+    flujo_libre             = EXCLUDED.flujo_libre,
+    fuente                  = EXCLUDED.fuente
+WHERE silver_fundamentals_anual.fuente <> 'reporte_pdf'
+   OR EXCLUDED.fuente = 'reporte_pdf'
 RETURNING (xmax = 0)
 """
 
@@ -276,7 +296,11 @@ def _cargar(cur: psycopg.Cursor, sql: str, filas: list[dict]) -> Carga:
     for fila in filas:
         cur.execute(sql, fila)
         resultado = cur.fetchone()
-        if resultado and resultado[0]:
+        # Sin fila devuelta, el DO UPDATE no llegó a ejecutarse: su WHERE de
+        # precedencia lo bloqueó. No es una actualización — no se escribió.
+        if resultado is None:
+            carga.preservadas += 1
+        elif resultado[0]:
             carga.nuevas += 1
         else:
             carga.actualizadas += 1

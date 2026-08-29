@@ -164,7 +164,8 @@ def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
             continue
 
         texto = _texto(archivo.read_bytes())
-        crudo = {"ticker": del_archivo, "period_end": periodo}
+        crudo = {"ticker": del_archivo, "period_end": periodo,
+                 "fuente": "reporte_pdf"}
         for campo, (patron, factor) in CAMPOS.items():
             valor = _valor_actual(texto, patron)
             if valor is not None:
@@ -234,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
         print("[backfill] las actualizadas sobrescriben datos de Yahoo en el "
               "solapamiento, que es lo pretendido: el PDF es la fuente primaria "
               "y Yahoo redondea la UPA del primer trimestre.")
+        print("[backfill] quedan marcadas fuente='reporte_pdf', así que un "
+              "`validate --todo` posterior ya NO las revierte.")
     print("[backfill] corre `transform` para recalcular gold_valuation.")
     return 0
 

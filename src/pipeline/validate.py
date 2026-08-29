@@ -453,6 +453,13 @@ def main(argv: list[str] | None = None) -> int:
           f"{sum(c.actualizadas for c in resumen.values()):>9} "
           f"{sum(rechazos_por_fuente.values()):>11}")
 
+    preservadas_total = sum(c.preservadas for c in resumen.values())
+    if preservadas_total:
+        print()
+        print(f"preservadas por precedencia de fuente: {preservadas_total}")
+        print("  (la fila en Silver viene del reporte oficial de la emisora y el "
+              "agregador no la pisa — ver sql/022_fundamentales_fuente.sql)")
+
     if omitidas_total:
         print()
         print(f"omitidas por serie retirada de la configuración: {omitidas_total}")
