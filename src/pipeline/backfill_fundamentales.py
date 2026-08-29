@@ -9,6 +9,11 @@ documento que la propia emisora publica.
         --dir /app/data/manual_dropzone/banorte_historico --ticker GFNORTEO.MX
     ... --dry-run     # extrae y muestra sin escribir
 
+Dos convenciones de nombre, según convenga:
+
+    1T18.pdf             una carpeta por emisora, el ticker va en --ticker
+    1T25_BBAJIOO.pdf     varias emisoras juntas; el sufijo manda sobre --ticker
+
 Piloto sobre Banorte (28-ago-2026): 29 PDF ya descargados a mano cubriendo
 2018-Q1 a 2025-Q1. Escalar al resto de emisoras exigiría ~460 PDF con el mismo
 procedimiento manual, así que esto es una prueba de concepto sobre el caso de
@@ -75,14 +80,36 @@ def _valor_actual(texto: str, patron: str) -> float | None:
     return numeros[2] if len(numeros) >= 3 else None
 
 
-def _periodo(nombre: str) -> date | None:
-    """`1T18.pdf` → 2018-03-31. Devuelve None si el nombre no encaja."""
-    m = re.fullmatch(r"([1-4])T(\d{2})", nombre)
+def _periodo_y_emisora(nombre: str) -> tuple[date | None, str | None]:
+    """Interpreta el nombre del archivo. Dos convenciones admitidas:
+
+        1T18.pdf              → (2018-03-31, None)   una carpeta por emisora
+        1T25_BBAJIOO.pdf      → (2025-03-31, "BBAJIOO")  varias en la misma
+
+    La segunda permite mezclar emisoras en un directorio, y entonces el sufijo
+    manda sobre el `--ticker` de la línea de comandos: con archivos de varias
+    emisoras juntos, un ticker único sería justo lo que no se quiere.
+    """
+    m = re.fullmatch(r"([1-4])T(\d{2})(?:[_-](.+))?", nombre, re.I)
     if not m:
-        return None
-    trimestre, anio = m.groups()
+        return None, None
+    trimestre, anio, emisora = m.groups()
     mes, dia = FIN_DE_TRIMESTRE[trimestre]
-    return date(2000 + int(anio), mes, dia)
+    return date(2000 + int(anio), mes, dia), (emisora.strip() if emisora else None)
+
+
+def _resolver_ticker(sufijo: str | None, por_defecto: str) -> str:
+    """Sufijo del archivo → ticker del universo.
+
+    Se admite tanto el símbolo completo (`BBAJIOO.MX`) como la clave de pizarra
+    (`BBAJIOO`), porque al renombrar a mano lo natural es escribir la segunda.
+    """
+    if not sufijo:
+        return por_defecto
+    candidato = sufijo.upper()
+    if not candidato.endswith(".MX"):
+        candidato += ".MX"
+    return candidato
 
 
 def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
@@ -90,14 +117,27 @@ def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
     filas, incidencias = [], []
     batch = uuid4()
 
+    from src.config.tickers import TICKERS_PRIORITARIOS
+
     for archivo in sorted(directorio.glob("*.pdf")):
-        periodo = _periodo(archivo.stem)
+        periodo, sufijo = _periodo_y_emisora(archivo.stem)
         if periodo is None:
-            incidencias.append(f"{archivo.name}: nombre fuera del patrón {{n}}T{{aa}}")
+            incidencias.append(
+                f"{archivo.name}: nombre fuera de los patrones {{n}}T{{aa}} "
+                f"o {{n}}T{{aa}}_{{EMISORA}}"
+            )
+            continue
+
+        del_archivo = _resolver_ticker(sufijo, ticker)
+        if del_archivo not in TICKERS_PRIORITARIOS:
+            incidencias.append(
+                f"{archivo.name}: '{del_archivo}' no está en el universo — "
+                "se omite en vez de cargarlo bajo un ticker que no le toca"
+            )
             continue
 
         texto = _texto(archivo.read_bytes())
-        crudo = {"ticker": ticker, "period_end": periodo}
+        crudo = {"ticker": del_archivo, "period_end": periodo}
         for campo, (patron, factor) in CAMPOS.items():
             valor = _valor_actual(texto, patron)
             if valor is not None:
@@ -124,7 +164,9 @@ def main(argv: list[str] | None = None) -> int:
         description="Carga fundamentales trimestrales desde PDF de resultados.",
     )
     parser.add_argument("--dir", required=True, help="Directorio con los PDF ({n}T{aa}.pdf).")
-    parser.add_argument("--ticker", required=True, help="Emisora a la que pertenecen.")
+    parser.add_argument("--ticker", default=None,
+                        help="Emisora por defecto. Opcional si TODOS los archivos\n"
+                             "llevan sufijo {n}T{aa}_{EMISORA}.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Extrae y muestra sin escribir en Silver.")
     args = parser.parse_args(argv)
@@ -141,16 +183,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {i}", file=sys.stderr)
         return 1
 
-    print(f"[backfill] {args.ticker} · {len(filas)} trimestres extraídos "
+    emisoras = sorted({f.ticker for f in filas})
+    print(f"[backfill] {', '.join(emisoras)} · {len(filas)} trimestres extraídos "
           f"({min(f.period_end for f in filas)} → {max(f.period_end for f in filas)})")
     for i in incidencias:
         print(f"[backfill] incidencia: {i}")
 
     if args.dry_run:
-        print(f"\n{'PERIODO':<13}{'UPA':>9}{'CAPITAL (mdp)':>16}")
-        for f in sorted(filas, key=lambda x: x.period_end):
+        print(f"\n{'EMISORA':<14}{'PERIODO':<13}{'UPA':>9}{'CAPITAL (mdp)':>16}")
+        for f in sorted(filas, key=lambda x: (x.ticker, x.period_end)):
             cap = f.capital_contable / MILLONES if f.capital_contable else 0
-            print(f"{str(f.period_end):<13}{f.utilidad_por_accion:>9.3f}{cap:>16,.0f}")
+            print(f"{f.ticker:<14}{str(f.period_end):<13}"
+                  f"{f.utilidad_por_accion:>9.3f}{cap:>16,.0f}")
         print("\n[backfill] DRY RUN — no se escribió nada.")
         return 0
 
