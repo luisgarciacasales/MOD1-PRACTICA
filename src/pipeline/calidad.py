@@ -43,18 +43,43 @@ def _filas(cur, sql: str, params: tuple = ()) -> list:
     return cur.fetchall()
 
 
+# Valores ya diagnosticados, con su cifra real cuando se conoce. Existen para
+# que el check señale lo NUEVO en vez de repetir lo sabido: un check que avisa
+# siempre deja de leerse, y entonces gasta la atención que debía proteger.
+#
+# No se corrigen porque el coste no sale a cuenta (28-ago-2026): las tres
+# emisoras maquetan su reporte de forma incompatible entre sí —BBAJÍO en prosa,
+# GFINBURSA en inglés y tabla de seis columnas, GENTERA sin publicar UPA— y
+# escribir tres extractores frágiles para nueve valores es peor negocio que
+# saber que están mal. Se retiran de esta lista si alguna vez se cargan bien.
+UPA_DIAGNOSTICADAS = {
+    ("GFNORTEO.MX", "2025-03-31"): "corregido con el PDF: 5.435",
+    ("GFNORTEO.MX", "2026-03-31"): "corregido con el PDF",
+    ("BBAJIOO.MX", "2025-03-31"): "el reporte dice 2.0940",
+    ("BBAJIOO.MX", "2026-03-31"): "sin verificar",
+    ("GENTERA.MX", "2025-03-31"): "GENTERA no publica UPA; habría que derivarla",
+    ("GENTERA.MX", "2026-03-31"): "GENTERA no publica UPA; habría que derivarla",
+    # No es redondeo: Yahoo trae el TRIMESTRE EQUIVOCADO. En la tabla del
+    # reporte, 1.00 es 1Q24 y el 1Q25 real es 1.30 — un 30% de error.
+    ("GFINBURO.MX", "2025-03-31"): "es 1Q24; el 1Q25 real es 1.30",
+    ("GFINBURO.MX", "2026-03-31"): "sin verificar",
+}
+
+
 def check_upa_redondeada(cur) -> Senal:
-    """UPA con valor entero exacto: huella de una fuente que redondea.
+    """UPA con valor entero exacto: huella de un dato que la fuente no da bien.
 
     Encontrado el 28-ago-2026 comparando los PDF de Banorte con Yahoo: 8 de 65
     UPA trimestrales eran enteros exactos (12,3%) frente a 0 de 64 en la serie
-    anual, y las ocho del primer trimestre de cuatro emisoras financieras.
-    GFNORTEO figuraba con 5,0000 donde su reporte oficial dice 5,435 — un 8% de
-    error que entra en el TTM y de ahí al P/U.
+    anual, y las ocho del primer trimestre de cuatro emisoras financieras. Con
+    dos decimales, el azar daría menos de un caso por cada cien valores.
 
-    Con dos decimales, el azar daría menos de un caso por cada cien valores. Un
-    porcentaje de un dígito alto o más es la fuente redondeando, no la
-    casualidad.
+    **El nombre del check se queda corto y conviene saberlo.** «Redondeo» fue
+    la primera hipótesis, pero al abrir los reportes resultó ser peor en al
+    menos un caso: en GFINBURO el 1,00 no es un 1,30 redondeado, es el valor
+    del trimestre ANTERIOR (1Q24 en lugar de 1Q25), un 30% de error. Un entero
+    exacto es la señal, no el diagnóstico: cuando aparezca uno nuevo, hay que
+    abrir el reporte y ver qué pasó de verdad.
     """
     filas = _filas(cur, """
         SELECT ticker, period_end::text, utilidad_por_accion
@@ -68,15 +93,27 @@ def check_upa_redondeada(cur) -> Senal:
     """)[0][0]
 
     if not filas:
-        return Senal("UPA redondeada a entero", OK, f"0 de {total} valores")
+        return Senal("UPA sospechosa (entero exacto)", OK, f"0 de {total} valores")
 
-    pct = 100.0 * len(filas) / total if total else 0
-    muestra = ", ".join(f"{t} {p[:7]}={v:g}" for t, p, v in filas[:3])
-    estado = PROBLEMA if pct >= 5 else SOSPECHA
+    nuevas = [(tk, per, v) for tk, per, v in filas
+              if (tk, per) not in UPA_DIAGNOSTICADAS]
+    conocidas = len(filas) - len(nuevas)
+
+    if not nuevas:
+        return Senal(
+            "UPA sospechosa (entero exacto)", OK,
+            f"{conocidas} de {total}, todas ya diagnosticadas y aceptadas "
+            "(ver UPA_DIAGNOSTICADAS) · no se corrigen: tres formatos de reporte "
+            "incompatibles para nueve valores",
+        )
+
+    muestra = ", ".join(f"{tk} {per[:7]}={v:g}" for tk, per, v in nuevas[:3])
     return Senal(
-        "UPA redondeada a entero", estado,
-        f"{len(filas)} de {total} ({pct:.1f}%) · {muestra}"
-        + (f" · +{len(filas) - 3} más" if len(filas) > 3 else ""),
+        "UPA sospechosa (entero exacto)", PROBLEMA,
+        f"{len(nuevas)} NUEVAS sin diagnosticar · {muestra}"
+        + (f" · +{len(nuevas) - 3} más" if len(nuevas) > 3 else "")
+        + f" · ({conocidas} conocidas aparte) · abre el reporte: un entero exacto "
+        "puede ser redondeo o el trimestre equivocado",
     )
 
 
