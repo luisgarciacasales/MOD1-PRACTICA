@@ -90,20 +90,27 @@ def check_huecos_trimestrales(cur) -> Senal:
     Solo cuenta los huecos INTERIORES: que una serie empiece en 2022 no es un
     hueco, es su comienzo.
     """
+    # Se compara por TRIMESTRE, no por fecha exacta. Sumar tres meses a un fin
+    # de mes no devuelve el siguiente fin de mes ('2018-09-30' + 3 months =
+    # '2018-12-30'), así que generar la serie sobre period_end desalineaba todo
+    # y marcaba huecos inexistentes. `date_trunc('quarter', ...)` da el primer
+    # día del trimestre, y ahí la suma de meses sí es exacta.
     filas = _filas(cur, """
-        WITH rangos AS (
-            SELECT ticker, MIN(period_end) AS ini, MAX(period_end) AS fin
-            FROM silver_fundamentals GROUP BY ticker
+        WITH q AS (
+            SELECT ticker, date_trunc('quarter', period_end) AS trim
+            FROM silver_fundamentals
+        ),
+        rangos AS (
+            SELECT ticker, MIN(trim) AS ini, MAX(trim) AS fin FROM q GROUP BY ticker
         ),
         esperados AS (
-            SELECT r.ticker, generate_series(r.ini, r.fin, INTERVAL '3 months')::date AS perio
+            SELECT r.ticker, generate_series(r.ini, r.fin, INTERVAL '3 months') AS trim
             FROM rangos r
         )
         SELECT e.ticker, COUNT(*) AS huecos
         FROM esperados e
-        LEFT JOIN silver_fundamentals f
-               ON f.ticker = e.ticker AND f.period_end = e.perio
-        WHERE f.period_end IS NULL
+        LEFT JOIN q ON q.ticker = e.ticker AND q.trim = e.trim
+        WHERE q.trim IS NULL
         GROUP BY e.ticker ORDER BY 2 DESC
     """)
     if not filas:
@@ -137,13 +144,21 @@ def check_precios_congelados(cur) -> Senal:
         GROUP BY ticker ORDER BY 2 DESC
     """, (VENTANA_HISTORICA_ANIOS, list(TICKERS_HISTORIA_COMPLETA)))
 
-    if not filas:
-        return Senal("Precios fuera del refresco", OK,
-                     f"ninguno · ventana {VENTANA_HISTORICA_ANIOS} años")
     total = sum(n for _, n in filas)
+    universo = _filas(cur, "SELECT COUNT(*) FROM silver_market_prices")[0][0]
+    pct = 100.0 * total / universo if universo else 0
+
+    # Que unas pocas filas crucen el borde de la ventana es inevitable y
+    # constante: cada mes salen ~21 por emisora. Avisar por eso convertiría el
+    # check en ruido de fondo, y un check que siempre avisa deja de leerse. El
+    # umbral marca cuándo el tramo congelado empieza a pesar de verdad.
+    if pct < 1.0:
+        return Senal("Precios fuera del refresco", OK,
+                     f"{total} filas ({pct:.2f}%) · por debajo del 1% que haría "
+                     f"significativa la discontinuidad")
     return Senal(
         "Precios fuera del refresco", SOSPECHA,
-        f"{total} filas en {len(filas)} emisoras nunca se re-ajustan "
+        f"{total} filas ({pct:.1f}%) en {len(filas)} emisoras nunca se re-ajustan "
         f"(ej. {filas[0][0]}: {filas[0][1]}) · un split dejaría discontinuidad",
     )
 
