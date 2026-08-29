@@ -76,3 +76,21 @@ def test_preservada_no_se_cuenta_como_actualizada():
     otra = db.Carga(preservadas=1)
     carga += otra
     assert (carga.nuevas, carga.actualizadas, carga.preservadas) == (1, 2, 4)
+
+
+def test_ingresos_negativos_van_a_cuarentena():
+    """Yahoo deriva el trimestre restando periodos y a veces sale negativo
+    (GFNORTEO 2025-06-30: ingresos −13,555 mdp). Unas ventas negativas no son
+    un dato observado, y dejarlas pasar daba un ROE trimestral de −1.1% para
+    un banco que ese trimestre ganó ~14,600 mdp."""
+    resultado = validar_fundamental(_crudo(ingresos_totales=-13_555_361_681.0), uuid4())
+    assert hasattr(resultado, "rejection_reason")
+
+
+def test_una_perdida_real_si_pasa():
+    """La restricción es sobre INGRESOS, no sobre el resultado: una emisora
+    puede perder dinero y eso es un dato legítimo que no se puede censurar."""
+    fila = validar_fundamental(
+        _crudo(ingresos_totales=49_851_000_000.0, utilidad_neta=-2_000_000_000.0), uuid4()
+    )
+    assert fila.utilidad_neta == -2_000_000_000.0

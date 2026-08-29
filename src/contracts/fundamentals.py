@@ -39,7 +39,16 @@ class Fundamental(BaseModel):
     period_end: date
 
     # Resultados
-    ingresos_totales: float | None = None
+    # `ge=0`: un ingreso total negativo no existe —son ventas, no un neto— así
+    # que su presencia delata un dato derivado, no observado. Yahoo construye
+    # el trimestre de las emisoras mexicanas restando periodos, y cuando los
+    # operandos no casan devuelve negativos: GFNORTEO 2025-06-30 traía
+    # ingresos −13,555 mdp y utilidad −670 mdp, con las seis últimas cifras
+    # idénticas a las del trimestre anterior (…361,681 y …111,461) — la firma
+    # aritmética de la resta. Si el estado de resultados vino mal derivado, el
+    # resto de la fila tampoco está garantizado, así que va entera a cuarentena
+    # en vez de contaminar el ROE y el P/U con un trimestre inventado.
+    ingresos_totales: float | None = Field(default=None, ge=0)
     utilidad_neta: float | None = None
     utilidad_por_accion: float | None = None
     # Balance

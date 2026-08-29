@@ -375,12 +375,33 @@ libro_anual AS (
     JOIN fx x ON x.ticker = a.ticker AND x.period_end = a.period_end
     WHERE a.capital_contable IS NOT NULL AND a.acciones_en_circulacion IS NOT NULL
 ),
+-- ROE. Sin JOIN a `fx` a propósito: es un cociente entre dos cifras del mismo
+-- estado financiero, así que el factor de conversión se cancela y aplicarlo
+-- sería un error silencioso. Ver sql/023_valuation_roe.sql para por qué la
+-- definición es el trimestre anualizado y no el TTM.
+roe_trimestral AS (
+    SELECT f.ticker, f.period_end,
+           100.0 * (f.utilidad_neta * 4) / f.capital_contable AS roe,
+           f.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals f
+    WHERE f.utilidad_neta IS NOT NULL AND f.capital_contable > 0
+),
+roe_anual AS (
+    SELECT a.ticker, a.period_end,
+           100.0 * a.utilidad_neta / a.capital_contable AS roe,
+           a.period_end + 45 AS disponible_desde
+    FROM silver_fundamentals_anual a
+    WHERE a.utilidad_neta IS NOT NULL AND a.capital_contable > 0
+),
 precio_multiplos AS (
     SELECT p.ticker, p.date, p.adj_close,
            COALESCE(t.eps_ttm, a.eps_anual) AS eps_ttm,
            CASE WHEN t.eps_ttm IS NOT NULL THEN 'trimestral_ttm' ELSE 'anual' END AS eps_source,
            COALESCE(lt.bvps, la.bvps) AS book_value_per_share,
            CASE WHEN lt.bvps IS NOT NULL THEN 'trimestral' ELSE 'anual' END AS book_source,
+           COALESCE(rt.roe, ra.roe) AS roe_anualizado,
+           CASE WHEN rt.roe IS NOT NULL THEN 'trimestral'
+                WHEN ra.roe IS NOT NULL THEN 'anual' END AS roe_source,
            COALESCE(t.moneda, a.moneda, 'MXN') AS moneda_reporte,
            COALESCE(t.fx_aplicado, a.fx_aplicado) AS fx_aplicado
     FROM silver_market_prices p
@@ -417,6 +438,22 @@ precio_multiplos AS (
         ORDER BY la.period_end DESC
         LIMIT 1
     ) la ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT rt.roe
+        FROM roe_trimestral rt
+        WHERE rt.ticker = p.ticker
+          AND rt.disponible_desde <= p.date
+        ORDER BY rt.period_end DESC
+        LIMIT 1
+    ) rt ON TRUE
+    LEFT JOIN LATERAL (
+        SELECT ra.roe
+        FROM roe_anual ra
+        WHERE ra.ticker = p.ticker
+          AND ra.disponible_desde <= p.date
+        ORDER BY ra.period_end DESC
+        LIMIT 1
+    ) ra ON TRUE
     WHERE p.ticker <> %(benchmark)s  -- un índice no tiene UPA ni valor en libros
 ),
 sector_config AS (
@@ -426,6 +463,7 @@ sector_config AS (
 con_multiplos AS (
     SELECT pm.ticker, pm.date, pm.adj_close, pm.eps_ttm, pm.eps_source,
            pm.moneda_reporte, pm.fx_aplicado, sc.sector,
+           pm.roe_anualizado, pm.roe_source,
            CASE WHEN pm.eps_ttm > 0 THEN pm.adj_close / pm.eps_ttm END AS pe_ratio,
            pm.book_value_per_share, pm.book_source,
            CASE WHEN pm.book_value_per_share > 0
@@ -440,8 +478,10 @@ mediana_sector AS (
     SELECT sector, date,
            COUNT(pe_ratio) AS n_pe,
            COUNT(pb_ratio) AS n_pb,
+           COUNT(roe_anualizado) AS n_roe,
            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pe_ratio) AS pe_mediana,
-           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pb_ratio) AS pb_mediana
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY pb_ratio) AS pb_mediana,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY roe_anualizado) AS roe_mediana
     FROM con_multiplos
     WHERE sector IS NOT NULL
     GROUP BY sector, date
@@ -460,7 +500,13 @@ con_sector AS (
                 THEN 100.0 * (c.pb_ratio / m.pb_mediana - 1) END AS pb_premium_sector_pct,
            CASE WHEN m.n_pb >= %(min_sector)s AND c.pb_ratio IS NOT NULL
                 THEN RANK() OVER (PARTITION BY c.sector, c.date ORDER BY c.pb_ratio)
-                END::int AS pb_rank_sector
+                END::int AS pb_rank_sector,
+           CASE WHEN m.n_roe >= %(min_sector)s THEN m.roe_mediana END AS roe_mediana_sector,
+           -- En PUNTOS PORCENTUALES, no en porcentaje relativo: "23% contra una
+           -- mediana de 15%" se lee como +8 pp, y decir "+53%" invita a
+           -- confundirlo con el ROE mismo.
+           CASE WHEN m.n_roe >= %(min_sector)s
+                THEN c.roe_anualizado - m.roe_mediana END AS roe_vs_sector_pp
     FROM con_multiplos c
     LEFT JOIN mediana_sector m ON m.sector = c.sector AND m.date = c.date
 ),
@@ -480,7 +526,8 @@ INSERT INTO gold_valuation (
     book_value_per_share, book_source, pb_ratio, pb_zscore_1y,
     moneda_reporte, fx_aplicado,
     sector, n_sector, pe_mediana_sector, pe_premium_sector_pct, pe_rank_sector,
-    pb_mediana_sector, pb_premium_sector_pct, pb_rank_sector, ingested_at
+    pb_mediana_sector, pb_premium_sector_pct, pb_rank_sector,
+    roe_anualizado, roe_source, roe_mediana_sector, roe_vs_sector_pp, ingested_at
 )
 SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        CASE WHEN n_1y_pe >= 60 AND pe_desv_1y > 0
@@ -491,6 +538,7 @@ SELECT ticker, date, adj_close, eps_ttm, eps_source, pe_ratio,
        moneda_reporte, fx_aplicado,
        sector, n_sector, pe_mediana_sector, pe_premium_sector_pct, pe_rank_sector,
        pb_mediana_sector, pb_premium_sector_pct, pb_rank_sector,
+       roe_anualizado, roe_source, roe_mediana_sector, roe_vs_sector_pp,
        NOW()
 FROM con_z
 WHERE pe_ratio IS NOT NULL
@@ -514,6 +562,10 @@ ON CONFLICT (ticker, date) DO UPDATE SET
     pb_mediana_sector     = EXCLUDED.pb_mediana_sector,
     pb_premium_sector_pct = EXCLUDED.pb_premium_sector_pct,
     pb_rank_sector        = EXCLUDED.pb_rank_sector,
+    roe_anualizado        = EXCLUDED.roe_anualizado,
+    roe_source            = EXCLUDED.roe_source,
+    roe_mediana_sector    = EXCLUDED.roe_mediana_sector,
+    roe_vs_sector_pp      = EXCLUDED.roe_vs_sector_pp,
     ingested_at           = NOW()
 RETURNING (xmax = 0)
 """
