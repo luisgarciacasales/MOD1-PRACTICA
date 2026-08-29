@@ -98,18 +98,44 @@ def _periodo_y_emisora(nombre: str) -> tuple[date | None, str | None]:
     return date(2000 + int(anio), mes, dia), (emisora.strip() if emisora else None)
 
 
-def _resolver_ticker(sufijo: str | None, por_defecto: str) -> str:
+def _resolver_ticker(sufijo: str | None, por_defecto: str | None) -> str | None:
     """Sufijo del archivo → ticker del universo.
 
-    Se admite tanto el símbolo completo (`BBAJIOO.MX`) como la clave de pizarra
-    (`BBAJIOO`), porque al renombrar a mano lo natural es escribir la segunda.
+    Se resuelve contra `ALIAS_EMISORAS` en lugar de exigir el símbolo exacto,
+    porque al renombrar a mano nadie escribe la clave de pizarra literal: los
+    archivos llegaron como `BBAJIO` (el ticker es BBAJIOO.MX, con doble O) y
+    `GFINBURSA` (es GFINBURO.MX). Ese diccionario existe justamente para saber
+    con qué nombres se llama a cada emisora, así que reusarlo evita mantener
+    una segunda tabla que se desincronizaría.
+
+    Tres intentos, del más estricto al más laxo:
+      1. el símbolo tal cual (`BBAJIOO.MX`, o `BBAJIOO` al que se añade `.MX`),
+      2. coincidencia exacta con un alias (`gentera`, `inbursa`),
+      3. un alias que sea PREFIJO del sufijo (`gfinbur` ⊂ `gfinbursa`).
+
+    El tercero es el que resuelve las abreviaturas parciales. No se hace al
+    revés —el sufijo como prefijo del alias— porque `q` casaría con `qualitas`
+    y cualquier letra suelta traería una emisora al azar.
     """
     if not sufijo:
         return por_defecto
-    candidato = sufijo.upper()
-    if not candidato.endswith(".MX"):
-        candidato += ".MX"
-    return candidato
+
+    from src.config.emisoras import ALIAS_EMISORAS
+    from src.config.tickers import TICKERS_PRIORITARIOS
+
+    limpio = sufijo.strip().upper()
+    for candidato in (limpio, limpio if limpio.endswith(".MX") else f"{limpio}.MX"):
+        if candidato in TICKERS_PRIORITARIOS:
+            return candidato
+
+    normalizado = limpio.removesuffix(".MX").lower()
+    for ticker, alias in ALIAS_EMISORAS.items():
+        if normalizado in alias:
+            return ticker
+    for ticker, alias in ALIAS_EMISORAS.items():
+        if any(normalizado.startswith(a) for a in alias if len(a) >= 4):
+            return ticker
+    return None
 
 
 def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
@@ -129,10 +155,11 @@ def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
             continue
 
         del_archivo = _resolver_ticker(sufijo, ticker)
-        if del_archivo not in TICKERS_PRIORITARIOS:
+        if del_archivo is None or del_archivo not in TICKERS_PRIORITARIOS:
             incidencias.append(
-                f"{archivo.name}: '{del_archivo}' no está en el universo — "
-                "se omite en vez de cargarlo bajo un ticker que no le toca"
+                f"{archivo.name}: no se pudo resolver '{sufijo or ticker}' a una "
+                "emisora del universo — se omite en vez de cargarlo bajo un "
+                "ticker que no le toca"
             )
             continue
 
