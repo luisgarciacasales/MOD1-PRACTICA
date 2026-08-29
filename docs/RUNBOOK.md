@@ -290,6 +290,7 @@ configuración ni su compose.
 make ps                       # estado de los contenedores
 make logs S=app               # últimas 100 líneas del contenedor de la app
 make verify                   # los 17 checks de la Definición de Terminado (§8)
+make calidad                  # vigilancia de calidad de datos (pregunta distinta, ver abajo)
 make test                     # las pruebas unitarias (no tocan red ni base)
 make gpu                      # VRAM y uso de la RTX 5080
 make ollama                   # modelos cargados en el lab-ollama compartido
@@ -325,6 +326,32 @@ Es lo que toca correr después de cambiar un contrato o una regla de validación
 porque las filas que entraron bajo la regla vieja no las alcanza el UPSERT si
 dejan de satisfacer el contrato nuevo, y quedarían como residuo silencioso.
 Tarda unos 3 minutos frente a los 8 segundos de la corrida normal.
+
+---
+
+## `verify` y `calidad` responden preguntas distintas
+
+No son lo mismo y conviene no confundirlos:
+
+| | pregunta | qué significa un fallo |
+|---|---|---|
+| `make verify` | ¿está construido lo que se prometió? (PRD §8) | falta funcionalidad |
+| `make calidad` | ¿los datos de dentro son creíbles? | una fuente externa metió un dato malo |
+
+Un dato sospechoso de Yahoo **no** significa que el sistema esté sin terminar,
+por eso `verify` sigue en 17 checks y no crece con esto.
+
+`calidad` usa tres severidades:
+
+- **PROBLEMA** — dato demostrablemente incorrecto. Sale con código 1.
+- **SOSPECHA** — patrón improbable que merece una mirada humana. Puede ser
+  legítimo; sale con código 0.
+- **OK** — sin señales.
+
+Cada check nació de un defecto que **estuvo en producción sin que nadie lo
+viera** y se encontró por casualidad. Si alguno empieza a avisar siempre,
+recalíbralo o quítalo: un check que siempre avisa deja de leerse y gasta la
+atención que debía proteger.
 
 ---
 
