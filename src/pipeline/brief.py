@@ -48,9 +48,23 @@ from src.config.tiempo import hoy_mercado
 MAX_LLAMADAS_POR_CORRIDA = 3
 
 # Precio de lista de Claude Opus 5, en dólares por millón de tokens. Solo para
-# reportar el coste de la corrida — la facturación real la lleva Anthropic.
+# estimar el coste de la corrida — la facturación real la lleva Anthropic, y
+# puede diferir si hay descuentos negociados.
 USD_POR_MTOK_ENTRADA = 5.0
 USD_POR_MTOK_SALIDA = 25.0
+
+# Control de gasto, en dólares de lista acumulados en el mes natural en curso.
+#
+# El techo de $20/mes del workspace es la red de seguridad; estos cortan mucho
+# antes y por una razón distinta. MAX_LLAMADAS_POR_CORRIDA protege del bucle;
+# esto protege de la DERIVA: si el contexto crece y el brief pasa de $0,08 a
+# $0,40, sin esto nadie se entera hasta que el workspace corta a mitad de mes.
+#
+# Con cadencia semanal el gasto real ronda $0,32/mes, así que TOPE deja un
+# margen de más de quince veces. Si algún día se alcanza, no es que haga falta
+# subirlo: es que algo cambió y merece mirarse.
+TOPE_MENSUAL_USD = 5.0
+AVISO_MENSUAL_USD = 2.0
 
 _SQL_SECTORES = """
 WITH ultimo AS (
@@ -106,6 +120,42 @@ FROM gold_macro_indicators
 WHERE series_id IN ('SF61745', 'SF43718', 'SF43783', 'SP74625')
 ORDER BY series_id, date DESC
 """
+
+
+_SQL_GASTO_DEL_MES = """
+SELECT COALESCE(SUM(usd_lista), 0)::float AS usd, COUNT(*) AS corridas
+FROM gold_brief_ejecuciones
+WHERE date_trunc('month', ejecutado_at) = date_trunc('month', NOW())
+"""
+
+_SQL_REGISTRAR = """
+INSERT INTO gold_brief_ejecuciones (
+    fecha_cierre, modelo, sectores, n_noticias,
+    tokens_entrada, tokens_salida, usd_lista
+) VALUES (
+    %(fecha)s, %(modelo)s, %(sectores)s, %(n_noticias)s,
+    %(entrada)s, %(salida)s, %(usd)s
+)
+"""
+
+
+def gasto_del_mes() -> tuple[float, int]:
+    """Dólares de lista y número de corridas en el mes natural en curso."""
+    with db.conectar() as cx, cx.cursor() as cur:
+        cur.execute(_SQL_GASTO_DEL_MES)
+        usd, corridas = cur.fetchone()
+    return float(usd), int(corridas)
+
+
+def registrar(contexto: dict, modelo: str, uso: dict) -> None:
+    with db.conectar() as cx, cx.cursor() as cur:
+        cur.execute(_SQL_REGISTRAR, {
+            "fecha": contexto["fecha"], "modelo": modelo,
+            "sectores": sorted(contexto["sectores"]),
+            "n_noticias": len(contexto["noticias_semana"]),
+            "entrada": uso["entrada"], "salida": uso["salida"], "usd": uso["usd"],
+        })
+        cx.commit()
 
 
 def recolectar(sector: str | None = None) -> dict:
@@ -236,6 +286,33 @@ def redactar(contexto: dict, modelo: str, clave: str) -> tuple[str, dict]:
     return texto.strip(), uso
 
 
+def _mostrar_gasto() -> int:
+    """Historial de corridas y coste. No llama al modelo ni gasta nada."""
+    with db.conectar() as cx, cx.cursor() as cur:
+        cur.execute("""
+            SELECT ejecutado_at::date, fecha_cierre, modelo, n_noticias,
+                   tokens_entrada, tokens_salida, usd_lista
+            FROM gold_brief_ejecuciones ORDER BY ejecutado_at DESC LIMIT 15
+        """)
+        filas = cur.fetchall()
+
+    if not filas:
+        print("[brief] sin corridas registradas todavía")
+        return 0
+
+    print(f"{'CORRIDA':<12}{'CIERRE':<12}{'NOTICIAS':>9}{'ENTRADA':>9}"
+          f"{'SALIDA':>8}{'USD':>9}")
+    print("-" * 59)
+    for corrida, cierre, _modelo, n, ent, sal, usd in filas:
+        print(f"{str(corrida):<12}{str(cierre):<12}{n:>9}{ent:>9}{sal:>8}{float(usd):>9.4f}")
+
+    acumulado, corridas = gasto_del_mes()
+    print("-" * 59)
+    print(f"mes en curso: ${acumulado:.2f} en {corridas} corrida(s) · "
+          f"aviso ${AVISO_MENSUAL_USD:.2f} · tope ${TOPE_MENSUAL_USD:.2f}")
+    return 0
+
+
 def _ruta_salida(fecha: date) -> Path:
     # Junto a los datos, no en el repo: es salida de ejecución (invariante 1).
     ruta = Path(get_settings().bronze_path).parent / "briefs"
@@ -252,7 +329,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Restringe a un sector (por defecto, todos los que tengan comparables).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Arma y muestra el contexto sin llamar al modelo ni gastar.")
+    parser.add_argument("--gasto", action="store_true",
+                        help="Muestra el historial de gasto y sale.")
     args = parser.parse_args(argv)
+
+    if args.gasto:
+        return _mostrar_gasto()
 
     contexto = recolectar(args.sector)
     if not contexto["sectores"]:
@@ -284,15 +366,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    # Una corrida = una llamada. El contador existe para que un futuro bucle
-    # (reintentos, iteración por sector) no pueda vaciar el techo del workspace
-    # y dejar al comité sin brief el resto del mes.
-    llamadas = 0
-    llamadas += 1
+    # Dos controles distintos, en el orden en que muerden.
+    #
+    # 1) Bucle dentro de una corrida.
+    llamadas = 1
     if llamadas > MAX_LLAMADAS_POR_CORRIDA:
         print(f"[brief] ABORTADO — más de {MAX_LLAMADAS_POR_CORRIDA} llamadas en una "
               "corrida es un bucle, no un brief.", file=sys.stderr)
         return 1
+
+    # 2) Deriva a lo largo del mes. Se comprueba ANTES de llamar: avisar después
+    # de gastar no sirve de nada.
+    gastado, corridas = gasto_del_mes()
+    if gastado >= TOPE_MENSUAL_USD:
+        print(
+            f"[brief] ABORTADO — ${gastado:.2f} de lista gastados este mes en "
+            f"{corridas} corridas, por encima del tope de ${TOPE_MENSUAL_USD:.2f}.\n"
+            "        Con cadencia semanal lo normal son ~$0.32/mes, así que esto\n"
+            "        no pide subir el tope: pide mirar qué cambió (¿creció el\n"
+            "        contexto? ¿se está llamando más de la cuenta?).",
+            file=sys.stderr,
+        )
+        return 1
+    if gastado >= AVISO_MENSUAL_USD:
+        print(f"[brief] AVISO — ${gastado:.2f} gastados este mes en {corridas} "
+              f"corridas (tope ${TOPE_MENSUAL_USD:.2f})")
 
     print(f"[brief] redactando con {settings.anthropic_model_brief}…", flush=True)
     try:
@@ -300,6 +398,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # noqa: BLE001 — el mensaje importa más que el tipo
         print(f"[brief] FALLÓ: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
+
+    registrar(contexto, settings.anthropic_model_brief, uso)
 
     destino = _ruta_salida(date.fromisoformat(contexto["fecha"]))
     destino.write_text(
@@ -315,8 +415,11 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print(texto)
     print()
+    acumulado, n = gasto_del_mes()
     print(f"[brief] {uso['entrada']} tokens de entrada · {uso['salida']} de salida "
           f"· ~${uso['usd']} a precio de lista")
+    print(f"[brief] mes en curso: ${acumulado:.2f} en {n} corrida(s) "
+          f"· tope ${TOPE_MENSUAL_USD:.2f}")
     print(f"[brief] escrito en {destino}")
     return 0
 
