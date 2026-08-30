@@ -9,9 +9,14 @@ terminar, y mezclarlos confundiría las dos cosas.
     docker compose exec -T app python -m src.pipeline.calidad
 
 **Cada check de este módulo nace de un defecto real que estuvo en producción
-sin que nadie lo viera**, y esa es la razón de que exista: los cuatro se
-encontraron por casualidad mientras se investigaba otra cosa. El objetivo es que
-el siguiente no dependa de la suerte.
+sin que nadie lo viera**, y esa es la razón de que exista: los cuatro primeros
+se encontraron por casualidad mientras se investigaba otra cosa. El objetivo es
+que el siguiente no dependa de la suerte.
+
+El quinto (`check_roe_implausible`) nace de que este módulo falló en eso: el
+29-ago-2026 Banorte llevaba medio año con un ROE de -1.1 por ciento en Gold y
+quien lo vio fue el usuario. Cuando un defecto se escapa, el arreglo no termina
+en el dato: termina cuando el detector lo habría cazado.
 
 Severidades, y por qué no todo es un fallo:
 
@@ -225,11 +230,73 @@ def check_correlaciones_sin_ner(cur) -> Senal:
     )
 
 
+# Emisoras que SÍ pueden aparecer con ROE negativo sin que sea un defecto,
+# revisadas una a una. Se listan para que el check señale lo nuevo en vez de
+# repetir lo ya mirado — mismo criterio que UPA_DIAGNOSTICADAS.
+ROE_NEGATIVO_ACEPTADO = {
+    ("CEMEXCPO.MX", "2025-12-31"): "pérdida de 356 mdd sobre ingresos POSITIVOS "
+                                   "de 4,180 — cargo de cierre de año, plausible",
+    ("Q.MX", "2025-12-31"): "pérdida de 195 mdp sobre ingresos positivos de 23,268",
+}
+
+
+def check_roe_implausible(cur) -> Senal:
+    """Un ROE que se desploma a terreno negativo desde un nivel sano.
+
+    Este check existe porque el detector falló en su único trabajo: el
+    29-ago-2026 GFNORTEO llevaba medio año publicando un ROE de -1.1 por ciento
+    en Gold y lo vio el usuario, no el detector. La causa era un trimestre que
+    Yahoo derivó restando periodos (ingresos negativos, ya rechazados por el
+    contrato), pero el síntoma —un banco que pasa de 23 a números rojos de un
+    trimestre al siguiente sin que haya pasado nada— es detectable sin saber
+    nada de la causa, y es la clase de señal que sobrevive al próximo defecto
+    de la fuente, que no se parecerá a este.
+
+    El criterio es el SALTO, no el signo. Una pérdida trimestral es un dato
+    legítimo (CEMEX y Quálitas en el 4T25) y censurarla sería el error opuesto;
+    lo que no es plausible es llegar a ella desde un ROE de dos dígitos sin
+    escala intermedia.
+    """
+    filas = _filas(cur, """
+        WITH roe AS (
+            SELECT ticker, period_end,
+                   100.0 * (utilidad_neta * 4) / capital_contable AS roe
+            FROM silver_fundamentals
+            WHERE utilidad_neta IS NOT NULL AND capital_contable > 0
+        )
+        SELECT ticker, period_end,
+               ROUND(roe::numeric, 1),
+               ROUND(LAG(roe) OVER (PARTITION BY ticker ORDER BY period_end)::numeric, 1)
+        FROM roe
+        ORDER BY ticker, period_end
+    """)
+    caidas = [
+        (tk, str(pe), r, previo)
+        for tk, pe, r, previo in filas
+        if r is not None and r < 0 and previo is not None and previo >= 10
+    ]
+    nuevas = [c for c in caidas if (c[0], c[1]) not in ROE_NEGATIVO_ACEPTADO]
+
+    if not nuevas:
+        detalle = (f"{len(caidas)} ya revisadas y aceptadas"
+                   if caidas else "ninguna emisora cae a ROE negativo desde dos dígitos")
+        return Senal("ROE con caída implausible", OK, detalle)
+
+    muestra = " · ".join(f"{tk} {pe}: {previo} → {r}" for tk, pe, r, previo in nuevas[:3])
+    return Senal(
+        "ROE con caída implausible", PROBLEMA,
+        f"{len(nuevas)} trimestre(s) · {muestra} · "
+        "revisa el estado de resultados contra el reporte de la emisora antes "
+        "de creerlo — Yahoo deriva trimestres restando periodos",
+    )
+
+
 CHECKS = (
     check_upa_redondeada,
     check_huecos_trimestrales,
     check_precios_congelados,
     check_correlaciones_sin_ner,
+    check_roe_implausible,
 )
 
 
