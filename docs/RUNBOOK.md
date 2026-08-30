@@ -353,6 +353,38 @@ viera** y se encontró por casualidad. Si alguno empieza a avisar siempre,
 recalíbralo o quítalo: un check que siempre avisa deja de leerse y gasta la
 atención que debía proteger.
 
+El quinto check existe porque este módulo falló en eso. El 29-ago-2026 Banorte
+llevaba medio año publicando un ROE de −1,1 % en Gold, y quien lo vio fue una
+persona, no el detector. **Cuando un defecto se escapa, el arreglo no termina
+en el dato: termina cuando el detector lo habría cazado.**
+
+## Los fundamentales tienen dos fuentes, y una manda sobre la otra
+
+`silver_fundamentals` mezcla dos orígenes, marcados en la columna `fuente`:
+
+| `fuente` | de dónde viene | precedencia |
+|---|---|---|
+| `reporte_pdf` | el estado financiero que publica la emisora (`make backfill-fund`) | **manda** |
+| `yahoo` | el agregador, vía la ingesta diaria | cede |
+
+Un UPSERT de `yahoo` **no pisa** una fila de `reporte_pdf`. Esto no es un
+detalle: hasta el 29-ago-2026 no existía, y el backfill era efímero — cada
+`make verify` (que corre `validate --todo` por dentro) devolvía las filas a los
+valores de Yahoo. El dato de la tabla dependía de en qué orden hubieras corrido
+los comandos.
+
+Cuando `validate` reporta **«preservadas por precedencia de fuente»**, eso es lo
+que está pasando y es lo correcto: son filas del reporte oficial que el
+agregador intentó sobrescribir. No son un error ni una actualización.
+
+**Por qué el reporte manda.** Yahoo no observa los trimestres de las emisoras
+mexicanas: los **deriva restando periodos**. Cuando los operandos no casan
+salen cifras imposibles — GFNORTEO 2025-06-30 llegó con ingresos de −13.555 mdp
+y utilidad de −670 mdp, con las seis últimas cifras idénticas a las del
+trimestre anterior en ambos campos. Por eso el contrato rechaza
+`ingresos_totales < 0`, y por eso también faltan trimestres enteros en la
+fuente.
+
 ---
 
 ## Lo que NO debes hacer
