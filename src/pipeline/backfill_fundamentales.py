@@ -116,6 +116,49 @@ def _valor_actual(texto: str, patron: str) -> float | None:
     return numeros[2] if len(numeros) >= 3 else None
 
 
+# Margen entre la utilidad por acción publicada y la que implican utilidad neta
+# y acciones extraídas. No puede ser cero: la UPA básica del reporte usa el
+# PROMEDIO PONDERADO de acciones del periodo y aquí se dispone del saldo de
+# cierre, así que un pequeño desvío es estructural. 5 por ciento lo cubre sin
+# dejar pasar una cifra que vino de otra fila.
+TOLERANCIA_ACCIONES_PCT = 5.0
+
+
+def _acciones(texto: str) -> float | None:
+    """Acciones en circulación, en unidades.
+
+    Tres maquetaciones según la época del reporte, y se prueban en orden de
+    preferencia:
+
+        Acciones en Circulación Contables (Millones) (4) 2,789.7 2,774.7 2,774.7
+        Acciones en Circulación - RNV     (Millones) (3) 2,883.5 2,813.2 2,813.2
+        Acciones en Circulación 2,883,456,594
+
+    **Se prefieren las CONTABLES** — emitidas menos las que están en tesorería —
+    porque son las que la propia emisora usa para sus métricas por acción ("UPA
+    Básica = utilidad neta / promedio ponderado de acciones en circulación
+    contables") y las que corresponden al valor en libros. Las RNV son las
+    registradas ante el Registro Nacional de Valores e incluyen la tesorería;
+    quedan como respaldo porque en los reportes viejos son lo único que hay.
+    La diferencia entre ambas ronda el 0,8 por ciento, así que el respaldo no
+    introduce un salto visible en la serie.
+
+    El tercer formato NO viene en millones sino en unidades, y por eso lleva su
+    propio patrón en vez de un factor: exigirle al menos nueve dígitos evita
+    que case con las dos filas anteriores, que empiezan igual.
+    """
+    for etiqueta in (r"Acciones en Circulaci[oó]n Contables\s*\(Millones\)",
+                     r"Acciones en Circulaci[oó]n\s*-?\s*RNV\s*\(Millones\)"):
+        valor = _valor_actual(texto, etiqueta + r"(?:\s*\(\d\))?")
+        if valor is not None:
+            return valor * MILLONES
+
+    m = re.search(r"Acciones en Circulaci[oó]n\s+([\d,]{9,})", texto)
+    if m:
+        return float(m.group(1).replace(",", ""))
+    return None
+
+
 def _periodo_y_emisora(nombre: str) -> tuple[date | None, str | None]:
     """Interpreta el nombre del archivo. Dos convenciones admitidas:
 
@@ -229,6 +272,28 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
         # extrae de una etiqueta que casi no se repite y es fiable de forma
         # independiente: quedarse sin ROE ese trimestre cuesta menos que
         # quedarse además sin P/U, y mucho menos que publicar un ROE falso.
+        acciones = _acciones(texto)
+        if acciones is not None:
+            # Mismo principio que el guardián del ROE: el reporte trae de qué
+            # auditarse. Si utilidad neta y UPA están bien, su cociente TIENE
+            # que dar el número de acciones; que no lo dé significa que alguna
+            # de las tres cifras vino de otra fila del documento.
+            upa = crudo.get("utilidad_por_accion")
+            neta = crudo.get("utilidad_neta")
+            if upa and neta:
+                implicadas = neta / upa
+                desvio = 100.0 * abs(acciones / implicadas - 1)
+                if desvio > TOLERANCIA_ACCIONES_PCT:
+                    incidencias.append(
+                        f"{archivo.name}: acciones descartadas — se extrajeron "
+                        f"{acciones / MILLONES:,.1f} millones y la UPA implica "
+                        f"{implicadas / MILLONES:,.1f} ({desvio:.1f} por ciento "
+                        "de desvío)"
+                    )
+                    acciones = None
+        if acciones is not None:
+            crudo["acciones_en_circulacion"] = acciones
+
         publicado = _roe_publicado(texto)
         implicado = (
             100.0 * crudo["utilidad_neta"] * 4 / crudo["capital_contable"]
@@ -342,12 +407,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[backfill] incidencia: {i}")
 
     if args.dry_run:
-        print(f"\n{'EMISORA':<14}{'PERIODO':<13}{'UPA':>9}{'CAPITAL (mdp)':>16}")
+        print(f"\n{'EMISORA':<14}{'PERIODO':<13}{'UPA':>9}{'CAPITAL (mdp)':>16}"
+              f"{'ACCIONES (M)':>15}")
         for f in sorted(filas, key=lambda x: (x["ticker"], x["period_end"])):
             cap = (f.get("capital_contable") or 0) / MILLONES
+            acc = (f.get("acciones_en_circulacion") or 0) / MILLONES
             upa = f.get("utilidad_por_accion")
             print(f"{f['ticker']:<14}{f['period_end']:<13}"
-                  f"{upa if upa is None else round(upa, 3)!s:>9}{cap:>16,.0f}")
+                  f"{upa if upa is None else round(upa, 3)!s:>9}{cap:>16,.0f}"
+                  f"{acc:>15,.1f}")
         print("\n[backfill] DRY RUN — no se escribió nada.")
         return 0
 
