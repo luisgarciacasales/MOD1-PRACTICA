@@ -33,25 +33,22 @@ class Carga:
     """Resultado de una carga. `nuevas == 0` tras un reproceso es el criterio
     de idempotencia del PRD §8.
 
-    `preservadas` cuenta las filas que el UPSERT dejó intactas a propósito
-    porque la de la base viene de una fuente con precedencia (hoy, un dato de
-    `reporte_pdf` que un lote de `yahoo` intentó pisar). No son actualizaciones
-    —no se escribió nada— y contarlas como tales ocultaría justo lo que hay que
-    ver: cuánto del lote entrante quedó descartado por precedencia."""
+    No hay un tercer contador para la precedencia entre fuentes: desde que se
+    aplica POR CAMPO (ver `_SQL_FUNDAMENTALES`) toda fila en conflicto se
+    actualiza, y lo que se conserva son campos sueltos dentro de ella. Contar
+    "filas preservadas" describía la versión anterior, que protegía la fila
+    entera y por eso destruía los campos que el reporte no trae."""
 
     nuevas: int = 0
     actualizadas: int = 0
-    preservadas: int = 0
 
     @property
     def total(self) -> int:
-        """Filas efectivamente escritas. Excluye `preservadas` por definición."""
         return self.nuevas + self.actualizadas
 
     def __iadd__(self, otra: Carga) -> Carga:
         self.nuevas += otra.nuevas
         self.actualizadas += otra.actualizadas
-        self.preservadas += otra.preservadas
         return self
 
 
@@ -114,23 +111,78 @@ INSERT INTO silver_fundamentals (
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales        = EXCLUDED.ingresos_totales,
-    utilidad_neta           = EXCLUDED.utilidad_neta,
-    utilidad_por_accion     = EXCLUDED.utilidad_por_accion,
-    activo_total            = EXCLUDED.activo_total,
-    pasivo_total            = EXCLUDED.pasivo_total,
-    capital_contable        = EXCLUDED.capital_contable,
-    acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
-    flujo_operativo         = EXCLUDED.flujo_operativo,
-    flujo_libre             = EXCLUDED.flujo_libre,
-    fuente                  = EXCLUDED.fuente
--- Un dato del agregador NO pisa uno del reporte oficial de la emisora.
--- Sin esta condición el backfill desde PDF era efímero: `validate --todo`
--- revalida todo Bronze y devolvía la fila a los valores de Yahoo, así que
--- cada `verify` (que corre validate --todo por dentro) lo deshacía. Ver
--- sql/022_fundamentales_fuente.sql para el experimento que lo demostró.
-WHERE silver_fundamentals.fuente <> 'reporte_pdf'
-   OR EXCLUDED.fuente = 'reporte_pdf'
+-- Precedencia POR CAMPO, no por fila. El reporte de la emisora manda donde
+-- habla; donde calla, se conserva lo que trajera el agregador.
+--
+-- La primera versión (29-ago) protegía la fila entera, y eso destruía datos:
+-- el PDF de Banorte aporta tres campos y Yahoo nueve, así que al ganar la fila
+-- se llevaba por delante acciones en circulación, activo total y flujos —y con
+-- las acciones, el P/VL trimestral de esos periodos—. Medido sobre 2024-12-31
+-- y 2025-03-31, que eran los únicos periodos donde coexistían ambas fuentes.
+--
+-- Las tres ramas, en orden:
+--   1. misma fuente refrescándose a sí misma: se copia tal cual, incluidos los
+--      NULL, para que un campo que desapareció del origen no quede fosilizado;
+--   2. entra el reporte: aporta lo suyo y respeta el resto;
+--   3. entra el agregador sobre un reporte: solo rellena huecos.
+    ingresos_totales        = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.ingresos_totales
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.ingresos_totales, silver_fundamentals.ingresos_totales)
+        ELSE COALESCE(silver_fundamentals.ingresos_totales, EXCLUDED.ingresos_totales)
+    END,
+    utilidad_neta           = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.utilidad_neta
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.utilidad_neta, silver_fundamentals.utilidad_neta)
+        ELSE COALESCE(silver_fundamentals.utilidad_neta, EXCLUDED.utilidad_neta)
+    END,
+    utilidad_por_accion     = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.utilidad_por_accion
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.utilidad_por_accion, silver_fundamentals.utilidad_por_accion)
+        ELSE COALESCE(silver_fundamentals.utilidad_por_accion, EXCLUDED.utilidad_por_accion)
+    END,
+    activo_total            = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.activo_total
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.activo_total, silver_fundamentals.activo_total)
+        ELSE COALESCE(silver_fundamentals.activo_total, EXCLUDED.activo_total)
+    END,
+    pasivo_total            = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.pasivo_total
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.pasivo_total, silver_fundamentals.pasivo_total)
+        ELSE COALESCE(silver_fundamentals.pasivo_total, EXCLUDED.pasivo_total)
+    END,
+    capital_contable        = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.capital_contable
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.capital_contable, silver_fundamentals.capital_contable)
+        ELSE COALESCE(silver_fundamentals.capital_contable, EXCLUDED.capital_contable)
+    END,
+    acciones_en_circulacion = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.acciones_en_circulacion
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.acciones_en_circulacion, silver_fundamentals.acciones_en_circulacion)
+        ELSE COALESCE(silver_fundamentals.acciones_en_circulacion, EXCLUDED.acciones_en_circulacion)
+    END,
+    flujo_operativo         = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.flujo_operativo
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.flujo_operativo, silver_fundamentals.flujo_operativo)
+        ELSE COALESCE(silver_fundamentals.flujo_operativo, EXCLUDED.flujo_operativo)
+    END,
+    flujo_libre             = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals.fuente THEN EXCLUDED.flujo_libre
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.flujo_libre, silver_fundamentals.flujo_libre)
+        ELSE COALESCE(silver_fundamentals.flujo_libre, EXCLUDED.flujo_libre)
+    END,
+    fuente                  = CASE
+        WHEN 'reporte_pdf' IN (EXCLUDED.fuente, silver_fundamentals.fuente)
+            THEN 'reporte_pdf' ELSE EXCLUDED.fuente
+    END
 RETURNING (xmax = 0)
 """
 
@@ -151,18 +203,78 @@ INSERT INTO silver_fundamentals_anual (
     %(ingested_at)s, %(raw_batch_uuid)s
 )
 ON CONFLICT (ticker, period_end) DO UPDATE SET
-    ingresos_totales        = EXCLUDED.ingresos_totales,
-    utilidad_neta           = EXCLUDED.utilidad_neta,
-    utilidad_por_accion     = EXCLUDED.utilidad_por_accion,
-    activo_total            = EXCLUDED.activo_total,
-    pasivo_total            = EXCLUDED.pasivo_total,
-    capital_contable        = EXCLUDED.capital_contable,
-    acciones_en_circulacion = EXCLUDED.acciones_en_circulacion,
-    flujo_operativo         = EXCLUDED.flujo_operativo,
-    flujo_libre             = EXCLUDED.flujo_libre,
-    fuente                  = EXCLUDED.fuente
-WHERE silver_fundamentals_anual.fuente <> 'reporte_pdf'
-   OR EXCLUDED.fuente = 'reporte_pdf'
+-- Precedencia POR CAMPO, no por fila. El reporte de la emisora manda donde
+-- habla; donde calla, se conserva lo que trajera el agregador.
+--
+-- La primera versión (29-ago) protegía la fila entera, y eso destruía datos:
+-- el PDF de Banorte aporta tres campos y Yahoo nueve, así que al ganar la fila
+-- se llevaba por delante acciones en circulación, activo total y flujos —y con
+-- las acciones, el P/VL trimestral de esos periodos—. Medido sobre 2024-12-31
+-- y 2025-03-31, que eran los únicos periodos donde coexistían ambas fuentes.
+--
+-- Las tres ramas, en orden:
+--   1. misma fuente refrescándose a sí misma: se copia tal cual, incluidos los
+--      NULL, para que un campo que desapareció del origen no quede fosilizado;
+--   2. entra el reporte: aporta lo suyo y respeta el resto;
+--   3. entra el agregador sobre un reporte: solo rellena huecos.
+    ingresos_totales        = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.ingresos_totales
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.ingresos_totales, silver_fundamentals_anual.ingresos_totales)
+        ELSE COALESCE(silver_fundamentals_anual.ingresos_totales, EXCLUDED.ingresos_totales)
+    END,
+    utilidad_neta           = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.utilidad_neta
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.utilidad_neta, silver_fundamentals_anual.utilidad_neta)
+        ELSE COALESCE(silver_fundamentals_anual.utilidad_neta, EXCLUDED.utilidad_neta)
+    END,
+    utilidad_por_accion     = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.utilidad_por_accion
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.utilidad_por_accion, silver_fundamentals_anual.utilidad_por_accion)
+        ELSE COALESCE(silver_fundamentals_anual.utilidad_por_accion, EXCLUDED.utilidad_por_accion)
+    END,
+    activo_total            = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.activo_total
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.activo_total, silver_fundamentals_anual.activo_total)
+        ELSE COALESCE(silver_fundamentals_anual.activo_total, EXCLUDED.activo_total)
+    END,
+    pasivo_total            = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.pasivo_total
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.pasivo_total, silver_fundamentals_anual.pasivo_total)
+        ELSE COALESCE(silver_fundamentals_anual.pasivo_total, EXCLUDED.pasivo_total)
+    END,
+    capital_contable        = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.capital_contable
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.capital_contable, silver_fundamentals_anual.capital_contable)
+        ELSE COALESCE(silver_fundamentals_anual.capital_contable, EXCLUDED.capital_contable)
+    END,
+    acciones_en_circulacion = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.acciones_en_circulacion
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.acciones_en_circulacion, silver_fundamentals_anual.acciones_en_circulacion)
+        ELSE COALESCE(silver_fundamentals_anual.acciones_en_circulacion, EXCLUDED.acciones_en_circulacion)
+    END,
+    flujo_operativo         = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.flujo_operativo
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.flujo_operativo, silver_fundamentals_anual.flujo_operativo)
+        ELSE COALESCE(silver_fundamentals_anual.flujo_operativo, EXCLUDED.flujo_operativo)
+    END,
+    flujo_libre             = CASE
+        WHEN EXCLUDED.fuente = silver_fundamentals_anual.fuente THEN EXCLUDED.flujo_libre
+        WHEN EXCLUDED.fuente = 'reporte_pdf'
+            THEN COALESCE(EXCLUDED.flujo_libre, silver_fundamentals_anual.flujo_libre)
+        ELSE COALESCE(silver_fundamentals_anual.flujo_libre, EXCLUDED.flujo_libre)
+    END,
+    fuente                  = CASE
+        WHEN 'reporte_pdf' IN (EXCLUDED.fuente, silver_fundamentals_anual.fuente)
+            THEN 'reporte_pdf' ELSE EXCLUDED.fuente
+    END
 RETURNING (xmax = 0)
 """
 
@@ -296,11 +408,7 @@ def _cargar(cur: psycopg.Cursor, sql: str, filas: list[dict]) -> Carga:
     for fila in filas:
         cur.execute(sql, fila)
         resultado = cur.fetchone()
-        # Sin fila devuelta, el DO UPDATE no llegó a ejecutarse: su WHERE de
-        # precedencia lo bloqueó. No es una actualización — no se escribió.
-        if resultado is None:
-            carga.preservadas += 1
-        elif resultado[0]:
+        if resultado and resultado[0]:
             carga.nuevas += 1
         else:
             carga.actualizadas += 1

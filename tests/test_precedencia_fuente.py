@@ -52,30 +52,57 @@ def test_una_fuente_inventada_va_a_cuarentena():
     assert hasattr(resultado, "rejection_reason")
 
 
+CAMPOS_FINANCIEROS = (
+    "ingresos_totales", "utilidad_neta", "utilidad_por_accion",
+    "activo_total", "pasivo_total", "capital_contable",
+    "acciones_en_circulacion", "flujo_operativo", "flujo_libre",
+)
+
+
 @pytest.mark.parametrize(
     "sql,tabla",
     [(db._SQL_FUNDAMENTALES, "silver_fundamentals"),
      (db._SQL_FUNDAMENTALES_ANUAL, "silver_fundamentals_anual")],
 )
-def test_el_upsert_protege_lo_que_vino_del_reporte(sql: str, tabla: str):
-    """Sin este WHERE, un lote de Yahoo vuelve a pisar el dato del PDF y todo
-    el backfill se pierde en el siguiente `verify`."""
-    assert f"WHERE {tabla}.fuente <> 'reporte_pdf'" in sql
-    assert "OR EXCLUDED.fuente = 'reporte_pdf'" in sql, (
-        "el propio backfill debe poder reescribir sus filas; sin esta segunda "
-        "condición, corregir un PDF mal extraído sería imposible"
+@pytest.mark.parametrize("campo", CAMPOS_FINANCIEROS)
+def test_la_precedencia_se_aplica_campo_a_campo(sql: str, tabla: str, campo: str):
+    """Cada campo decide por separado quién gana.
+
+    La primera versión protegía la FILA entera y por eso destruía datos: el PDF
+    de Banorte aporta tres campos y Yahoo nueve, así que al ganar la fila se
+    llevaba por delante acciones en circulación, activo total y flujos — y con
+    las acciones, el P/VL trimestral de esos periodos. Si alguien vuelve a
+    escribir un `EXCLUDED.<campo>` pelado, este test lo caza.
+    """
+    assert f"COALESCE(EXCLUDED.{campo}, {tabla}.{campo})" in sql, (
+        "entra el reporte: debe aportar lo suyo y respetar el resto"
+    )
+    assert f"COALESCE({tabla}.{campo}, EXCLUDED.{campo})" in sql, (
+        "entra el agregador sobre un reporte: solo debe rellenar huecos"
     )
 
 
-def test_preservada_no_se_cuenta_como_actualizada():
-    """Con el WHERE, un UPSERT bloqueado no devuelve fila. Contarlo como
-    actualización diría 'se escribió' de algo que no se escribió, que es
-    exactamente el reporte engañoso que costó un día detectar."""
-    carga = db.Carga(nuevas=1, actualizadas=2, preservadas=3)
-    assert carga.total == 3
-    otra = db.Carga(preservadas=1)
-    carga += otra
-    assert (carga.nuevas, carga.actualizadas, carga.preservadas) == (1, 2, 4)
+@pytest.mark.parametrize(
+    "sql,tabla",
+    [(db._SQL_FUNDAMENTALES, "silver_fundamentals"),
+     (db._SQL_FUNDAMENTALES_ANUAL, "silver_fundamentals_anual")],
+)
+def test_una_fuente_refrescandose_a_si_misma_puede_borrar(sql: str, tabla: str):
+    """Sin esta rama, un campo que desapareció del origen quedaría fosilizado:
+    el COALESCE lo conservaría para siempre y nadie podría corregirlo."""
+    assert f"WHEN EXCLUDED.fuente = {tabla}.fuente THEN EXCLUDED." in sql
+
+
+@pytest.mark.parametrize(
+    "sql,tabla",
+    [(db._SQL_FUNDAMENTALES, "silver_fundamentals"),
+     (db._SQL_FUNDAMENTALES_ANUAL, "silver_fundamentals_anual")],
+)
+def test_la_etiqueta_de_fuente_no_degrada(sql: str, tabla: str):
+    """Una fila que ya lleva algo del reporte oficial sigue etiquetada así
+    aunque el agregador le rellene huecos: si se degradara a `yahoo`, la
+    siguiente carga podría pisar los campos del reporte."""
+    assert f"WHEN 'reporte_pdf' IN (EXCLUDED.fuente, {tabla}.fuente)" in sql
 
 
 def test_ingresos_negativos_van_a_cuarentena():
