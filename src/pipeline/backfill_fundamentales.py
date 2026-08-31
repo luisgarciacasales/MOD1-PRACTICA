@@ -272,28 +272,6 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
         # extrae de una etiqueta que casi no se repite y es fiable de forma
         # independiente: quedarse sin ROE ese trimestre cuesta menos que
         # quedarse además sin P/U, y mucho menos que publicar un ROE falso.
-        acciones = _acciones(texto)
-        if acciones is not None:
-            # Mismo principio que el guardián del ROE: el reporte trae de qué
-            # auditarse. Si utilidad neta y UPA están bien, su cociente TIENE
-            # que dar el número de acciones; que no lo dé significa que alguna
-            # de las tres cifras vino de otra fila del documento.
-            upa = crudo.get("utilidad_por_accion")
-            neta = crudo.get("utilidad_neta")
-            if upa and neta:
-                implicadas = neta / upa
-                desvio = 100.0 * abs(acciones / implicadas - 1)
-                if desvio > TOLERANCIA_ACCIONES_PCT:
-                    incidencias.append(
-                        f"{archivo.name}: acciones descartadas — se extrajeron "
-                        f"{acciones / MILLONES:,.1f} millones y la UPA implica "
-                        f"{implicadas / MILLONES:,.1f} ({desvio:.1f} por ciento "
-                        "de desvío)"
-                    )
-                    acciones = None
-        if acciones is not None:
-            crudo["acciones_en_circulacion"] = acciones
-
         publicado = _roe_publicado(texto)
         implicado = (
             100.0 * crudo["utilidad_neta"] * 4 / crudo["capital_contable"]
@@ -312,6 +290,33 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
                 crudo.pop("capital_contable", None)
                 if len(crudo) == 3:
                     continue
+
+        acciones = _acciones(texto)
+        if acciones is not None:
+            # Mismo principio que el guardián del ROE, y por eso va DESPUÉS de
+            # él: se apoya en una utilidad neta ya validada. Al revés, una
+            # utilidad mala arrastraba consigo unas acciones correctas — pasaba
+            # en 1T26, donde se descartaban 2,774.7 millones perfectamente
+            # extraídos porque la utilidad venía de otra entidad.
+            #
+            # Si utilidad neta y UPA están bien, su cociente TIENE que dar el
+            # número de acciones; que no lo dé significa que alguna de las tres
+            # cifras vino de otra fila del documento.
+            upa = crudo.get("utilidad_por_accion")
+            neta = crudo.get("utilidad_neta")
+            if upa and neta:
+                implicadas = neta / upa
+                desvio = 100.0 * abs(acciones / implicadas - 1)
+                if desvio > TOLERANCIA_ACCIONES_PCT:
+                    incidencias.append(
+                        f"{archivo.name}: acciones descartadas — se extrajeron "
+                        f"{acciones / MILLONES:,.1f} millones y la UPA implica "
+                        f"{implicadas / MILLONES:,.1f} ({desvio:.1f} por ciento "
+                        "de desvío)"
+                    )
+                    acciones = None
+        if acciones is not None:
+            crudo["acciones_en_circulacion"] = acciones
 
         filas.append(crudo)
 
