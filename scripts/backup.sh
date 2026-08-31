@@ -72,7 +72,10 @@ docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-mod1}" \
 
 # Un volcado que no se puede leer no es una copia. Se comprueba SIEMPRE, aquí
 # y ahora, no el día que haga falta restaurarlo.
-if ! pg_restore --list "$SNAPSHOT/postgres.dump" > "$SNAPSHOT/postgres.indice.txt" 2>/dev/null; then
+# `pg_restore` vive en el contenedor, no en el host, así que la comprobación
+# entra por stdin igual que salió el volcado.
+if ! docker compose exec -T postgres pg_restore --list \
+        < "$SNAPSHOT/postgres.dump" > "$SNAPSHOT/postgres.indice.txt" 2>/dev/null; then
     echo "[backup] ERROR: el volcado no es legible por pg_restore" >&2
     rm -rf "$SNAPSHOT"
     exit 1
