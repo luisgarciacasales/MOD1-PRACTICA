@@ -79,6 +79,28 @@ CAMPOS = {
 }
 
 
+# Tolerancia entre el ROE que publica el reporte y el que implican los campos
+# extraídos. El desvío normal es de 0,3-1,0 pp porque la emisora promedia el
+# capital y excluye el interés minoritario, mientras que aquí se usa el capital
+# de cierre; 1,5 pp deja holgura para eso sin tapar un error de extracción, que
+# es de otro orden de magnitud (el 1T26 fallaba por 5,9 pp).
+TOLERANCIA_ROE_PP = 1.5
+
+
+def _roe_publicado(texto: str) -> float | None:
+    """El ROE del trimestre según la tabla de Rentabilidad del propio reporte.
+
+    Tercer valor de la fila, como en el resto del documento: las columnas son
+    [mismo trimestre del año anterior, trimestre anterior, ACTUAL, acumulado
+    anterior, acumulado actual, doce meses].
+    """
+    m = re.search(r"\nROE[^\n]{0,90}", texto)
+    if not m:
+        return None
+    numeros = re.findall(r"(\d+\.\d)%", m.group(0))
+    return float(numeros[2]) if len(numeros) >= 3 else None
+
+
 def _texto(pdf: bytes) -> str:
     from pypdf import PdfReader
 
@@ -195,6 +217,36 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
         if len(crudo) == 3:
             incidencias.append(f"{archivo.name}: ningún campo extraíble")
             continue
+
+        # El reporte valida su propia extracción. `Utilidad Neta` y `Capital
+        # Contable` aparecen decenas de veces en el documento —Grupo, Banco,
+        # subsidiarias— y tomar la primera coincidencia acierta casi siempre,
+        # pero no siempre: en 1T26 la primera es de otra entidad (11,912 mdp
+        # cuando la UPA de 5.495 implica unos 15,200) y el ROE salía 18,0 por
+        # ciento contra el 23,9 que el propio PDF imprime.
+        #
+        # Se descartan los dos campos en vez de la fila entera porque la UPA se
+        # extrae de una etiqueta que casi no se repite y es fiable de forma
+        # independiente: quedarse sin ROE ese trimestre cuesta menos que
+        # quedarse además sin P/U, y mucho menos que publicar un ROE falso.
+        publicado = _roe_publicado(texto)
+        implicado = (
+            100.0 * crudo["utilidad_neta"] * 4 / crudo["capital_contable"]
+            if crudo.get("utilidad_neta") and crudo.get("capital_contable")
+            else None
+        )
+        if publicado is not None and implicado is not None:
+            desvio = implicado - publicado
+            if abs(desvio) > TOLERANCIA_ROE_PP:
+                incidencias.append(
+                    f"{archivo.name}: utilidad neta y capital descartados — implican "
+                    f"un ROE de {implicado:.1f} y el reporte publica {publicado:.1f} "
+                    f"({desvio:+.1f} pp); la etiqueta debió casar con otra entidad"
+                )
+                crudo.pop("utilidad_neta", None)
+                crudo.pop("capital_contable", None)
+                if len(crudo) == 3:
+                    continue
 
         filas.append(crudo)
 
