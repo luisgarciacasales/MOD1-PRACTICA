@@ -42,6 +42,7 @@ from src.contracts import (
     guid_natural,
 )
 from src.pipeline import db
+from src.pipeline.backfill_fundamentales import FUENTE as FUENTE_REPORTES_PDF
 from src.pipeline.bronze import leer_lote, leer_metadata, listar_lotes
 from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_tickers
 
@@ -292,6 +293,15 @@ def procesar_lote(
             resultado = validar_fundamental(
                 {k: v for k, v in crudo.items() if k != "source"}, batch_uuid, source=source
             )
+        elif source == FUENTE_REPORTES_PDF:
+            # La precedencia se DERIVA de la fuente del lote, no viaja en el
+            # registro: Bronze guarda lo que dijo el papel, y un campo `fuente`
+            # dentro del payload sería un dato sobre el dato, editable y
+            # redundante con el `source` del propio lote.
+            resultado = validar_fundamental(
+                {k: v for k, v in crudo.items() if k != "source"} | {"fuente": "reporte_pdf"},
+                batch_uuid, source=source,
+            )
         elif source == "inegi":
             if not indicador_vigente(crudo.get("indicador_id")):
                 omitidas += 1
@@ -348,7 +358,7 @@ def procesar_lote(
             carga += db.cargar_noticias(cur, validos)
         elif source == "yahoo_finance":
             carga += db.cargar_precios(cur, validos)
-        elif source == "yahoo_fundamentals":
+        elif source in ("yahoo_fundamentals", FUENTE_REPORTES_PDF):
             carga += db.cargar_fundamentales(cur, validos)
         elif source == "yahoo_fundamentals_anual":
             carga += db.cargar_fundamentales_anual(cur, validos)

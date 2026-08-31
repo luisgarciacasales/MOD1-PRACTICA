@@ -9,6 +9,16 @@ documento que la propia emisora publica.
         --dir /app/data/manual_dropzone/banorte_historico --ticker GFNORTEO.MX
     ... --dry-run     # extrae y muestra sin escribir
 
+**Este módulo es un `ingest`, no una carga.** Escribe un lote en Bronze y ahí
+termina; a Silver se llega por `validate`, como cualquier otra fuente. Antes
+escribía directo a Silver, y eso dejaba los reportes fuera de la cadena que hace
+reproducible el pipeline: al reconstruir la base, `validate` regenera Silver
+desde Bronze y los trimestres del PDF no habrían vuelto — había que acordarse de
+reejecutar esto a mano, justo el día peor. Ahora vuelven solos.
+
+El lote queda en `bronze/fundamentals/reportes_pdf/{fecha}/{uuid}/` y lo recoge
+el siguiente `validate` (o el siguiente `make batch`, que lo incluye).
+
 Dos convenciones de nombre, según convenga:
 
     1T18.pdf             una carpeta por emisora, el ticker va en --ticker
@@ -43,9 +53,13 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from src.contracts import validar_fundamental
-from src.pipeline import db
-from uuid import uuid4
+from src.config import get_settings
+from src.config.tiempo import hoy_mercado
+from src.pipeline.bronze import escribir_lote
+
+# El nombre con el que `validate` reconoce estos lotes y les asigna la
+# precedencia `reporte_pdf` sobre los datos del agregador.
+FUENTE = "reportes_pdf"
 
 # 1T→31 de marzo, y así. El nombre del archivo es la única fuente de la fecha:
 # el texto del PDF trae el corte del periodo en varias formas y ninguna es
@@ -138,10 +152,10 @@ def _resolver_ticker(sufijo: str | None, por_defecto: str | None) -> str | None:
     return None
 
 
-def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
-    """Devuelve (filas válidas, incidencias). No escribe nada."""
+def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
+    """Devuelve (registros crudos, incidencias). No escribe nada ni valida:
+    Bronze guarda lo que dijo la fuente, y juzgarlo es tarea del contrato."""
     filas, incidencias = [], []
-    batch = uuid4()
 
     from src.config.tickers import TICKERS_PRIORITARIOS
 
@@ -164,24 +178,25 @@ def extraer(directorio: Path, ticker: str) -> tuple[list, list[str]]:
             continue
 
         texto = _texto(archivo.read_bytes())
-        crudo = {"ticker": del_archivo, "period_end": periodo,
-                 "fuente": "reporte_pdf"}
+        crudo = {"ticker": del_archivo,
+                 "period_end": periodo.isoformat(),
+                 "source": FUENTE}
         for campo, (patron, factor) in CAMPOS.items():
             valor = _valor_actual(texto, patron)
             if valor is not None:
                 crudo[campo] = valor * factor
 
-        # Sin UPA no hay P/U, que es la razón de ser del backfill. Se registra
-        # como incidencia en vez de cargar una fila que no sirve para nada.
-        if crudo.get("utilidad_por_accion") is None:
-            incidencias.append(f"{archivo.name}: sin UPA extraíble")
+        # Ya no se exige UPA. Se exigía cuando el único destino era el P/U, y
+        # costaba caro: 3T24 tiene capital contable y utilidad neta perfectamente
+        # extraíbles y se tiraba entero por no encontrar la UPA (el texto del PDF
+        # sale con espacios espurios). Desde que existe el ROE —que no necesita
+        # UPA— esa fila vale. Quién decide qué es aceptable es el contrato, en
+        # `validate`, no este extractor: aquí solo se lee el papel.
+        if len(crudo) == 3:
+            incidencias.append(f"{archivo.name}: ningún campo extraíble")
             continue
 
-        resultado = validar_fundamental(crudo, batch)
-        if hasattr(resultado, "rejection_reason"):
-            incidencias.append(f"{archivo.name}: rechazado — {resultado.rejection_detail}")
-        else:
-            filas.append(resultado)
+        filas.append(crudo)
 
     return filas, incidencias
 
@@ -211,33 +226,35 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  {i}", file=sys.stderr)
         return 1
 
-    emisoras = sorted({f.ticker for f in filas})
+    emisoras = sorted({f["ticker"] for f in filas})
+    periodos = sorted(f["period_end"] for f in filas)
     print(f"[backfill] {', '.join(emisoras)} · {len(filas)} trimestres extraídos "
-          f"({min(f.period_end for f in filas)} → {max(f.period_end for f in filas)})")
+          f"({periodos[0]} → {periodos[-1]})")
     for i in incidencias:
         print(f"[backfill] incidencia: {i}")
 
     if args.dry_run:
         print(f"\n{'EMISORA':<14}{'PERIODO':<13}{'UPA':>9}{'CAPITAL (mdp)':>16}")
-        for f in sorted(filas, key=lambda x: (x.ticker, x.period_end)):
-            cap = f.capital_contable / MILLONES if f.capital_contable else 0
-            print(f"{f.ticker:<14}{str(f.period_end):<13}"
-                  f"{f.utilidad_por_accion:>9.3f}{cap:>16,.0f}")
+        for f in sorted(filas, key=lambda x: (x["ticker"], x["period_end"])):
+            cap = (f.get("capital_contable") or 0) / MILLONES
+            upa = f.get("utilidad_por_accion")
+            print(f"{f['ticker']:<14}{f['period_end']:<13}"
+                  f"{upa if upa is None else round(upa, 3)!s:>9}{cap:>16,.0f}")
         print("\n[backfill] DRY RUN — no se escribió nada.")
         return 0
 
-    with db.conectar() as conexion, conexion.cursor() as cur:
-        carga = db.cargar_fundamentales(cur, filas)
-        conexion.commit()
-
-    print(f"[backfill] {carga.nuevas} nuevas · {carga.actualizadas} actualizadas")
-    if carga.actualizadas:
-        print("[backfill] las actualizadas sobrescriben datos de Yahoo en el "
-              "solapamiento, que es lo pretendido: el PDF es la fuente primaria "
-              "y Yahoo redondea la UPA del primer trimestre.")
-        print("[backfill] quedan marcadas fuente='reporte_pdf', así que un "
-              "`validate --todo` posterior ya NO las revierte.")
-    print("[backfill] corre `transform` para recalcular gold_valuation.")
+    lote = escribir_lote(
+        filas,
+        source=FUENTE,
+        categoria="fundamentals",
+        fecha=hoy_mercado(),
+        raiz_bronze=Path(get_settings().bronze_path),
+    )
+    print(f"[backfill] lote {lote.batch_uuid} · {lote.record_count} registros")
+    print(f"[backfill] Bronze: {lote.ruta}")
+    print("[backfill] a Silver se llega por `validate`, que es la única puerta: "
+          "córrelo ahora o deja que lo recoja el próximo `make batch`.")
+    print("[backfill] después, `transform` para recalcular gold_valuation.")
     return 0
 
 

@@ -377,6 +377,34 @@ Cuando `validate` reporta **«preservadas por precedencia de fuente»**, eso es 
 que está pasando y es lo correcto: son filas del reporte oficial que el
 agregador intentó sobrescribir. No son un error ni una actualización.
 
+### Cómo se cargan los reportes en PDF
+
+Desde el 31-ago-2026 los reportes son **una fuente de Bronze más**, no un atajo
+a Silver. El flujo tiene tres pasos y ninguno es opcional:
+
+```bash
+# 1. deposita los PDF en data/manual_dropzone/<carpeta>/ del servidor
+#    (nombres: {n}T{aa}.pdf  o  {n}T{aa}_{EMISORA}.pdf)
+
+# 2. extrae y escribe el lote en Bronze — NO toca Silver
+make backfill-fund ARGS="--dir /app/data/manual_dropzone/banorte_historico --ticker GFNORTEO.MX"
+
+# 3. Silver y Gold, por la puerta de siempre
+make validate && make transform
+```
+
+Si te saltas el paso 3 no pasa nada grave: el siguiente `make batch` recoge el
+lote, porque `validate` procesa todo lote de Bronze que no haya visto antes.
+
+Añade `ARGS="... --dry-run"` para ver qué se extraería sin escribir nada. Úsalo
+siempre con PDF de una emisora nueva: cada una maqueta su reporte distinto.
+
+**Por qué pasa por Bronze y no directo a Silver.** Porque Bronze es lo que hace
+reproducible el pipeline — `validate` regenera Silver entero desde ahí. Mientras
+los reportes entraron por un canal lateral, una base reconstruida perdía los 28
+trimestres de Banorte hasta que alguien se acordara de reejecutar el backfill a
+mano. Ahora vuelven solos.
+
 **Por qué el reporte manda.** Yahoo no observa los trimestres de las emisoras
 mexicanas: los **deriva restando periodos**. Cuando los operandos no casan
 salen cifras imposibles — GFNORTEO 2025-06-30 llegó con ingresos de −13.555 mdp

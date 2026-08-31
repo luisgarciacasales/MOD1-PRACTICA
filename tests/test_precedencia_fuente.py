@@ -94,3 +94,53 @@ def test_una_perdida_real_si_pasa():
         _crudo(ingresos_totales=49_851_000_000.0, utilidad_neta=-2_000_000_000.0), uuid4()
     )
     assert fila.utilidad_neta == -2_000_000_000.0
+
+
+# --- Los reportes en PDF son una fuente de Bronze, no un atajo a Silver ------
+#
+# Hasta el 31-ago-2026 el backfill escribía directo a Silver, y eso dejaba los
+# reportes oficiales fuera de la cadena que hace reproducible el pipeline:
+# `validate` regenera Silver desde Bronze, así que una base reconstruida perdía
+# los 28 trimestres del PDF hasta que alguien se acordara de reejecutar el
+# backfill a mano.
+
+
+def test_la_fuente_del_lote_es_la_que_validate_reconoce():
+    """Si estos dos nombres se separan, los lotes de reportes entran a Bronze y
+    `validate` los ignora en silencio — ni cargados ni en cuarentena."""
+    from src.pipeline.backfill_fundamentales import FUENTE
+    from src.pipeline.validate import FUENTE_REPORTES_PDF
+
+    assert FUENTE == FUENTE_REPORTES_PDF == "reportes_pdf"
+
+
+def test_la_precedencia_se_deriva_del_lote_no_del_registro():
+    """El payload de Bronze NO lleva un campo `fuente`: es un dato sobre el
+    dato, editable y redundante con el `source` del propio lote. `validate` lo
+    deriva al validar, que es lo que reproduce este test."""
+    from src.pipeline.backfill_fundamentales import FUENTE
+
+    crudo_en_bronze = {"ticker": "GFNORTEO.MX", "period_end": "2025-03-31",
+                       "utilidad_por_accion": 5.435, "source": FUENTE}
+    assert "fuente" not in crudo_en_bronze
+
+    fila = validar_fundamental(
+        {k: v for k, v in crudo_en_bronze.items() if k != "source"} | {"fuente": "reporte_pdf"},
+        uuid4(), source=FUENTE,
+    )
+    assert fila.fuente == "reporte_pdf"
+
+
+def test_una_fila_sin_UPA_ya_no_se_descarta():
+    """3T24 de Banorte tiene capital contable y utilidad neta perfectamente
+    extraíbles, y se tiraba entero por no encontrar la UPA (el texto del PDF
+    sale con espacios espurios: `4.91 1` en vez de `4.911`). Desde que existe
+    el ROE —que no necesita UPA— esa fila vale."""
+    fila = validar_fundamental(
+        {"ticker": "GFNORTEO.MX", "period_end": date(2024, 9, 30),
+         "utilidad_neta": 14_238_000_000.0, "capital_contable": 253_186_000_000.0,
+         "fuente": "reporte_pdf"},
+        uuid4(),
+    )
+    assert fila.utilidad_por_accion is None
+    assert 100.0 * fila.utilidad_neta * 4 / fila.capital_contable == pytest.approx(22.5, abs=0.1)
