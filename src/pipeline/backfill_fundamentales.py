@@ -201,6 +201,53 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
     return filas, incidencias
 
 
+def descargar_faltantes(destino: Path) -> tuple[list[str], list[str]]:
+    """Baja al dropzone los reportes de Banorte que no estén ya ahí.
+
+    Devuelve `(descargados, incidencias)`. El nombre se **normaliza** a
+    `{n}T{aa}.pdf`: el sitio los publica con sufijos que cambian de un trimestre
+    a otro (`2T25_vc_.pdf`, `4T25_v.pdf`, `2T26.pdf`) y `_periodo_y_emisora`
+    leería ese sufijo como si fuera el nombre de una emisora.
+
+    Solo Banorte, y solo hacia adelante: su página lista los cinco trimestres
+    más recientes, no el histórico. Esto no reabre el pasado —el de 2018-2024 se
+    reunió a mano en su día—, sirve para que la serie no vuelva a quedarse atrás,
+    que era el problema recurrente.
+
+    Nunca sobrescribe: un archivo ya presente se respeta, porque puede haberlo
+    puesto una persona a mano y el sitio republica con nombres cambiantes.
+    """
+    import requests
+
+    from src.sources.reportes_ir import _CABECERAS, TIMEOUT_PDF, urls_trimestrales_banorte
+
+    destino.mkdir(parents=True, exist_ok=True)
+    descargados, incidencias = [], []
+
+    try:
+        urls = urls_trimestrales_banorte()
+    except Exception as exc:  # noqa: BLE001
+        return [], [f"no se pudo consultar el listado de RI: {type(exc).__name__}: {exc}"]
+
+    for (anio, qnum), url in sorted(urls.items()):
+        nombre = f"{qnum}T{anio % 100:02d}.pdf"
+        archivo = destino / nombre
+        if archivo.exists():
+            continue
+        try:
+            resp = requests.get(url, headers=_CABECERAS, timeout=TIMEOUT_PDF)
+            resp.raise_for_status()
+            if not resp.content.startswith(b"%PDF"):
+                incidencias.append(f"{nombre}: la respuesta no es un PDF ({url})")
+                continue
+            archivo.write_bytes(resp.content)
+            descargados.append(f"{nombre} ({len(resp.content) // 1024} KB)")
+        except Exception as exc:  # noqa: BLE001
+            incidencias.append(f"{nombre}: {type(exc).__name__} al descargar {url}")
+
+    return descargados, incidencias
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="src.pipeline.backfill_fundamentales",
@@ -212,9 +259,18 @@ def main(argv: list[str] | None = None) -> int:
                              "llevan sufijo {n}T{aa}_{EMISORA}.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Extrae y muestra sin escribir en Silver.")
+    parser.add_argument("--descargar", action="store_true",
+                        help="Antes de extraer, baja de la página de RI de Banorte\n"
+                             "los trimestres que falten en --dir. No sobrescribe.")
     args = parser.parse_args(argv)
 
     directorio = Path(args.dir)
+    if args.descargar:
+        nuevos, fallos = descargar_faltantes(directorio)
+        for f in fallos:
+            print(f"[backfill] descarga: {f}", file=sys.stderr)
+        print(f"[backfill] descargados: {', '.join(nuevos) if nuevos else 'ninguno (ya estaban)'}")
+
     if not directorio.is_dir():
         print(f"[backfill] {directorio} no es un directorio", file=sys.stderr)
         return 1

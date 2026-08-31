@@ -197,7 +197,23 @@ def _localizar_banorte(sopa: BeautifulSoup, base_url: str) -> tuple[str | None, 
     sale del propio nombre de archivo (`fecha_aproximada_de_trimestre`,
     mismo rezago de 45 días que `_SQL_VALUATION`), determinista y sin
     depender de qué texto aparezca primero en el PDF."""
-    mejor: tuple[tuple[int, int], str] | None = None
+    candidatos = candidatos_banorte(sopa, base_url)
+    if not candidatos:
+        return None, None
+    anio, qnum = max(candidatos)
+    return candidatos[(anio, qnum)], fecha_aproximada_de_trimestre(anio, qnum)
+
+
+def candidatos_banorte(sopa: BeautifulSoup, base_url: str) -> dict[tuple[int, int], str]:
+    """TODOS los reportes narrativos que ofrece la página, por `(año, trimestre)`.
+
+    La ingesta diaria solo quiere el último, pero el backfill de fundamentales
+    quiere los que le falten a la serie, y ambos necesitan exactamente el mismo
+    criterio para separar el comunicado de los anexos regulatorios. Vive aquí,
+    en una sola función, para que no se dupliquen ni se desincronicen: el filtro
+    lleva meses en producción y ya costó un bug de lookahead afinarlo.
+    """
+    encontrados: dict[tuple[int, int], str] = {}
     for a in sopa.find_all("a", href=True):
         m = re.search(
             r"quarterly-results/es/(\d{4})/(\d)T(\d{2})/([^/\"]+\.pdf)$", a["href"]
@@ -209,13 +225,21 @@ def _localizar_banorte(sopa: BeautifulSoup, base_url: str) -> tuple[str | None, 
             continue
         if not re.match(rf"^{qnum}T{yy}(_.*)?\.pdf$", archivo, re.IGNORECASE):
             continue
-        clave = (int(anio), int(qnum))
-        if mejor is None or clave > mejor[0]:
-            mejor = (clave, urljoin(base_url, a["href"]))
-    if mejor is None:
-        return None, None
-    (anio, qnum), url = mejor
-    return url, fecha_aproximada_de_trimestre(anio, qnum)
+        encontrados[(int(anio), int(qnum))] = urljoin(base_url, a["href"])
+    return encontrados
+
+
+def urls_trimestrales_banorte() -> dict[tuple[int, int], str]:
+    """Consulta la página de RI y devuelve `{(año, trimestre): url}`.
+
+    Solo Banorte: es la única emisora del universo cuyo sitio publica el
+    listado histórico con una estructura de URL estable. Las que cuelgan del
+    portal de la BMV exponen únicamente el trimestre vigente.
+    """
+    emisora = next(e for e in EMISORAS_IR if e.ticker == "GFNORTEO.MX")
+    resp = requests.get(emisora.listado_url, headers=_CABECERAS, timeout=TIMEOUT_LISTADO)
+    resp.raise_for_status()
+    return candidatos_banorte(BeautifulSoup(resp.text, "lxml"), emisora.listado_url)
 
 
 def _localizar_bolsaa(sopa: BeautifulSoup, base_url: str) -> str | None:
