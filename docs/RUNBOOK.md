@@ -415,6 +415,64 @@ fuente.
 
 ---
 
+## Copias de seguridad
+
+```bash
+make backup     # crea un snapshot
+make backups    # lista los que hay y cuánto ocupan
+```
+
+Se copia **lo que no se puede volver a obtener**:
+
+| | por qué |
+|---|---|
+| la base entera | `gold_enriched_news` es la única copia de la inferencia del LLM local: no es reproducible —el modelo no es determinista— y cuesta ~40 min de GPU. `gold_brief_ejecuciones` costó dinero. |
+| `bronze/` | la capa de la que se regenera Silver completo |
+| `manual_dropzone/` | los PDF **originales**. Bronze guarda las cifras extraídas, no el documento, y los 29 reportes de Banorte de 2018-2024 **no se pueden volver a descargar**: su página de RI solo publica los cinco trimestres más recientes. |
+
+Y **no** se copian `faiss/` (se reconstruye desde Silver, y `verify` lo comprueba),
+`hf_cache/` ni `cache/` (se redescargan).
+
+El primer snapshot ocupa unos 340 MB; los siguientes, unos 23 MB — los archivos
+se comparten por enlace duro y Bronze es inmutable, así que solo pesa lo nuevo.
+Se conservan los últimos 14.
+
+**Los secretos NO están en la copia**, a propósito: `.env` y
+`~/augmented/secrets/` no van a un archivo de respaldo. Ten esos valores en un
+gestor de contraseñas — si se pierde el disco, el backup devuelve los datos pero
+el token de Banxico y la clave de Anthropic los repones tú.
+
+### Restaurar
+
+Cada snapshot lleva un `MANIFIESTO.txt` con los comandos exactos. En resumen:
+
+```bash
+# la base entera
+docker compose exec -T postgres pg_restore -U mod1 -d mod1_practica \
+    --clean --if-exists < ~/augmented/backups/MOD1-PRACTICA/ultimo/postgres.dump
+
+# una sola tabla (lo habitual: recuperar el enriquecimiento sin tocar el resto)
+docker compose exec -T postgres pg_restore -U mod1 -d mod1_practica \
+    --data-only -t gold_enriched_news < .../postgres.dump
+
+# archivos
+rsync -a ~/augmented/backups/MOD1-PRACTICA/ultimo/archivos/ data/
+```
+
+El volcado se verifica con `pg_restore --list` **en el momento de crearlo**: un
+dump ilegible no es una copia, y descubrirlo el día que hace falta es tarde. La
+restauración completa se probó el 31-ago-2026 sobre una base temporal,
+comparando conteos tabla por tabla.
+
+### El límite que esto NO cubre
+
+Las copias viven en el **mismo disco** que los datos. Eso protege contra el
+error humano —un `down -v`, un borrado, una migración que sale mal—, que es el
+riesgo frecuente. **No protege contra la pérdida del disco.** Para eso hace
+falta llevárselas a otra máquina, y no está hecho.
+
+---
+
 ## Lo que NO debes hacer
 
 - **`docker compose down -v`** en el servidor: borra el volumen de PostgreSQL con
