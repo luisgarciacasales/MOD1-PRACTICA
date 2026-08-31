@@ -171,3 +171,31 @@ def test_una_fila_sin_UPA_ya_no_se_descarta():
     )
     assert fila.utilidad_por_accion is None
     assert 100.0 * fila.utilidad_neta * 4 / fila.capital_contable == pytest.approx(22.5, abs=0.1)
+
+
+# --- Bronze es acumulativo, así que el ORDEN de aplicación importa -----------
+
+
+def test_los_lotes_se_aplican_en_orden_cronologico(tmp_path):
+    """El directorio de un lote termina en su UUID, así que ordenar por ruta es
+    ordenar al azar. Con Bronze acumulativo y UPSERT, el último aplicado gana:
+    un lote que corrige a otro puede quedar revertido por él.
+
+    Pasó de verdad el 31-ago-2026 con tres lotes de reportes_pdf del mismo día
+    — ganó el defectuoso porque su UUID empezaba por `f` y el bueno por `b`.
+    """
+    from src.pipeline.bronze import escribir_lote, listar_lotes
+
+    escritos = [
+        escribir_lote([{"n": i}], source="reportes_pdf", categoria="fundamentals",
+                      fecha=date(2026, 8, 31), raiz_bronze=tmp_path)
+        for i in range(6)
+    ]
+    listados = listar_lotes(tmp_path)
+
+    assert [l.ruta for l in escritos] == listados, (
+        "el orden de listado debe ser el de escritura, no el alfabético del UUID"
+    )
+    # Y que el caso patológico esté realmente cubierto: si los UUID salieran
+    # ya ordenados, el test pasaría sin comprobar nada.
+    assert sorted(listados) != listados or len({l.ruta.name[0] for l in escritos}) == 1

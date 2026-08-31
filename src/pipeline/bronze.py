@@ -125,14 +125,44 @@ def verificar_checksum(ruta: Path) -> bool:
 def listar_lotes(raiz_bronze: Path, *, categoria: str | None = None,
                  source: str | None = None, fecha: date | None = None) -> list[Path]:
     """Enumera directorios de lote, opcionalmente filtrando. Lo consume la
-    etapa de validación para saber qué hay pendiente de procesar."""
+    etapa de validación para saber qué hay pendiente de procesar.
+
+    **En orden cronológico real**, que no es el de la ruta. El directorio
+    termina en el UUID del lote, así que un `sorted()` sobre la ruta ordena por
+    UUID —es decir, al azar— en cuanto hay más de un lote de la misma fuente el
+    mismo día. Eso importa porque Bronze es acumulativo y el UPSERT deja ganar
+    al último aplicado: un lote que corrige a otro anterior puede quedar
+    revertido por él, y el resultado de reprocesar depende de qué UUID salió.
+
+    Se detectó el 31-ago-2026 con tres lotes de `reportes_pdf` del mismo día
+    (29 registros, 34 con un defecto de extracción y 34 corregidos): tras
+    `validate --todo` ganó el defectuoso, porque su UUID empezaba por `f` y el
+    del bueno por `b`.
+    """
     patron = "/".join([
         categoria or "*",
         source or "*",
         fecha.isoformat() if fecha else "*",
         "*",
     ])
-    return sorted(p for p in raiz_bronze.glob(patron) if (p / "metadata.json").exists())
+    return sorted(
+        (p for p in raiz_bronze.glob(patron) if (p / "metadata.json").exists()),
+        key=_orden_cronologico,
+    )
+
+
+def _orden_cronologico(lote: Path) -> tuple[str, str, str]:
+    """`(fecha_lote, ingested_at, nombre)` leídos del metadata.
+
+    El nombre solo desempata lotes escritos en el mismo instante, para que el
+    orden sea total y estable. Un metadata ilegible va al principio: es un lote
+    anómalo y lo que se quiera corregir después debe poder pisarlo.
+    """
+    try:
+        meta = json.loads((lote / "metadata.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return ("", "", lote.name)
+    return (meta.get("fecha_lote", ""), meta.get("ingested_at", ""), lote.name)
 
 
 # --- Interno ---------------------------------------------------------------
