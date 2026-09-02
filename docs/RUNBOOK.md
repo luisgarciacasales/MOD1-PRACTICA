@@ -415,6 +415,33 @@ fuente.
 
 ---
 
+## Las pruebas son de dos clases
+
+```bash
+make test    # las ejecuta todas
+```
+
+**Unitarias** — contratos, extracción, correlación. No necesitan nada montado.
+
+**De integración** — `tests/test_integracion_fundamentales.py`, contra una base
+PostgreSQL **de verdad**. `conftest.py` crea `mod1_test` con el esquema real
+aplicado desde `sql/`, aísla cada prueba por transacción y la destruye al
+terminar. `mod1_practica` no se toca. Si no hay PostgreSQL alcanzable se saltan
+en vez de fallar, para que la batería siga corriendo en un portátil.
+
+Existen porque los tres defectos más caros de agosto de 2026 —el backfill que se
+revertía solo, la precedencia que destruía campos, y los lotes aplicándose en
+orden de UUID— vivieron días en producción y se encontraron por casualidad
+mirando datos. La batería de entonces era enteramente unitaria: comprobaba que
+el SQL *contuviera* ciertos textos, no que la base *se comportara*. **Un test
+que lee una cadena no sabe qué hace un `ON CONFLICT`.**
+
+Se verificaron por mutación: reinyectando cada UPSERT defectuoso, las pruebas
+fallan; con el código vigente, pasan. Si escribes una prueba de regresión nueva,
+haz lo mismo — una que pasa con el bug puesto no protege de nada.
+
+---
+
 ## Copias de seguridad
 
 ```bash
