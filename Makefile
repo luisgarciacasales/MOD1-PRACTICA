@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad backup backups
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -253,6 +253,9 @@ evidencia: ## Copia el informe de evidencia a docs/ (solo MODO=remoto)
 
 calidad: ## Vigilancia de calidad de datos (distinto de verify: aquí no se pregunta si está terminado, sino si los datos son creíbles)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.calidad'
+
+estado: ## ¿Qué está pasando ahora? Corrida en curso, última corrida, lotes sin validar, copias
+	$(RUN) 'cd $(DIR) && bash scripts/estado.sh'
 
 backup: ## Copia de seguridad de lo irreemplazable (base, Bronze, PDF originales)
 	$(RUN) 'cd $(DIR) && bash scripts/backup.sh'
