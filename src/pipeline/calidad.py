@@ -291,12 +291,103 @@ def check_roe_implausible(cur) -> Senal:
     )
 
 
+# Fuentes de fundamentales y la tabla donde aterriza cada una. El check las
+# recorre para comparar lo que dijo el papel contra lo que quedó en Silver.
+FUENTES_FUNDAMENTALES = {
+    "yahoo_fundamentals": "silver_fundamentals",
+    "reportes_pdf": "silver_fundamentals",
+    "yahoo_fundamentals_anual": "silver_fundamentals_anual",
+}
+
+CAMPOS_FUNDAMENTALES = (
+    "ingresos_totales", "utilidad_neta", "utilidad_por_accion",
+    "activo_total", "pasivo_total", "capital_contable",
+    "acciones_en_circulacion", "flujo_operativo", "flujo_libre",
+)
+
+
+def check_campos_perdidos(cur) -> Senal:
+    """Campos que la fuente entregó y que en Silver están vacíos.
+
+    Nace del defecto del 31-ago-2026: al hacerse la precedencia por FILA, el
+    reporte de Banorte —que trae tres campos— se llevó por delante las acciones
+    en circulación, el activo total y los flujos que Yahoo sí había entregado.
+    El P/VL trimestral se quedó sin base durante dos días y NADIE lo vio; se
+    encontró de casualidad mirando otra cosa.
+
+    Los tests de integración protegen las reglas que sé enunciar. Esto vigila lo
+    contrario: que ningún dato desaparezca en silencio, sea cual sea la razón,
+    incluida una que no se me haya ocurrido.
+
+    **La referencia es Bronze**, que es inmutable: no hace falta guardar un
+    histórico de Silver para saber qué había antes. Se compara solo contra el
+    lote MÁS RECIENTE de cada fuente, porque un lote viejo puede traer un campo
+    que la fuente dejó legítimamente de publicar, y avisar de eso sería un falso
+    positivo.
+
+    Solo se miran filas que EXISTEN en Silver: una fila ausente puede estar en
+    cuarentena, que es una decisión del contrato y no una pérdida.
+    """
+    from pathlib import Path as _Path
+
+    from src.config import get_settings
+    from src.pipeline.bronze import leer_lote, listar_lotes
+
+    raiz = _Path(get_settings().bronze_path)
+    perdidos: list[str] = []
+    comparados = 0
+
+    for source, tabla in FUENTES_FUNDAMENTALES.items():
+        lotes = listar_lotes(raiz, categoria="fundamentals", source=source)
+        if not lotes:
+            continue
+        # `listar_lotes` va en orden cronológico desde el 31-ago; el último es
+        # el más reciente de verdad, no el de UUID mayor.
+        _, registros = leer_lote(lotes[-1])
+
+        cur.execute(
+            f"SELECT ticker, period_end, {', '.join(CAMPOS_FUNDAMENTALES)} FROM {tabla}"  # noqa: S608
+        )
+        en_silver = {
+            (fila[0], fila[1].isoformat()): dict(
+                zip(CAMPOS_FUNDAMENTALES, fila[2:], strict=True)
+            )
+            for fila in cur.fetchall()
+        }
+
+        for registro in registros:
+            if registro.get("_parciales"):
+                continue
+            clave = (registro.get("ticker"), str(registro.get("period_end"))[:10])
+            fila = en_silver.get(clave)
+            if fila is None:
+                continue  # ausente: cuarentena o fuera de alcance, no una pérdida
+            comparados += 1
+            for campo in CAMPOS_FUNDAMENTALES:
+                if registro.get(campo) is not None and fila[campo] is None:
+                    perdidos.append(f"{clave[0]} {clave[1]} · {campo} (de {source})")
+
+    if not perdidos:
+        return Senal("Campos perdidos entre Bronze y Silver", OK,
+                     f"0 · {comparados} filas contrastadas contra el último lote de "
+                     f"{len(FUENTES_FUNDAMENTALES)} fuentes")
+
+    muestra = " · ".join(perdidos[:3])
+    return Senal(
+        "Campos perdidos entre Bronze y Silver", PROBLEMA,
+        f"{len(perdidos)} campo(s) que la fuente entregó y en Silver están vacíos · "
+        f"{muestra}{' …' if len(perdidos) > 3 else ''} · "
+        "revisa el UPSERT antes de fiarte de los múltiplos que los usan",
+    )
+
+
 CHECKS = (
     check_upa_redondeada,
     check_huecos_trimestrales,
     check_precios_congelados,
     check_correlaciones_sin_ner,
     check_roe_implausible,
+    check_campos_perdidos,
 )
 
 
