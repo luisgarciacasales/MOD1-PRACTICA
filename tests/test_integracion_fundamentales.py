@@ -118,3 +118,75 @@ def test_la_carga_es_transaccional_por_fuente(cur, fuente):
     assert _leer(cur) == {}, "una prueba anterior dejó estado en la base"
     db.cargar_fundamentales(cur, [_fila(fuente, utilidad_por_accion=1.0)])
     assert _leer(cur)["fuente"] == fuente
+
+
+# --- El vigilante de campos perdidos ----------------------------------------
+
+
+def _bronze_de_juguete(tmp_path, registro):
+    """Un Bronze con un solo lote, para no depender de los datos reales."""
+    from src.pipeline.bronze import escribir_lote
+
+    escribir_lote([registro], source="yahoo_fundamentals", categoria="fundamentals",
+                  fecha=PERIODO, raiz_bronze=tmp_path)
+    return tmp_path
+
+
+def test_el_check_ve_un_campo_que_la_fuente_dio_y_silver_no_tiene(cur, tmp_path, monkeypatch):
+    """El daño del 31-ago: la fila está, pero le faltan campos que la fuente
+    sí entregó. Se comprueba en las dos direcciones — con el campo presente
+    debe callar, sin él debe avisar—, porque un check que solo se ve dar OK no
+    demuestra que detecte nada.
+    """
+    import src.config
+    from src.pipeline.calidad import OK, PROBLEMA, check_campos_perdidos
+
+    registro = {"ticker": TICKER, "period_end": PERIODO.isoformat(),
+                "source": "yahoo_fundamentals", "utilidad_por_accion": 5.0,
+                "acciones_en_circulacion": 2_812_156_594.0}
+    raiz = _bronze_de_juguete(tmp_path, registro)
+    monkeypatch.setattr(src.config, "get_settings",
+                        lambda: type("S", (), {"bronze_path": str(raiz)})())
+
+    # Con el campo: silencio.
+    db.cargar_fundamentales(cur, [_fila("yahoo", utilidad_por_accion=5.0,
+                                        acciones_en_circulacion=2_812_156_594.0)])
+    assert check_campos_perdidos(cur).estado == OK
+
+    # Sin él: aviso. Es exactamente lo que dejó el UPSERT por fila.
+    cur.execute(
+        "UPDATE silver_fundamentals SET acciones_en_circulacion = NULL "
+        "WHERE ticker = %s AND period_end = %s", (TICKER, PERIODO)
+    )
+    senal = check_campos_perdidos(cur)
+    assert senal.estado == PROBLEMA
+    assert "acciones_en_circulacion" in senal.evidencia
+
+
+def test_un_registro_en_cuarentena_no_cuenta_como_campo_perdido(cur, tmp_path, monkeypatch):
+    """Falso positivo de la primera corrida: el 2025-06-30 de GFNORTEO existe
+    en Silver porque lo puso el reporte en PDF, pero el registro de Yahoo para
+    ese periodo lo rechazó el contrato entero por traer ingresos negativos. Sus
+    campos no faltan — se descartaron a propósito."""
+    import src.config
+    from src.contracts.rejections import guid_natural
+    from src.pipeline.calidad import OK, check_campos_perdidos
+
+    registro = {"ticker": TICKER, "period_end": PERIODO.isoformat(),
+                "source": "yahoo_fundamentals", "ingresos_totales": -13_555e6,
+                "acciones_en_circulacion": 2_812_156_594.0}
+    raiz = _bronze_de_juguete(tmp_path, registro)
+    monkeypatch.setattr(src.config, "get_settings",
+                        lambda: type("S", (), {"bronze_path": str(raiz)})())
+
+    # La fila existe en Silver por el reporte, sin las acciones que trae Yahoo.
+    db.cargar_fundamentales(cur, [_fila("reporte_pdf", utilidad_por_accion=5.435)])
+    # Y el registro de Yahoo quedó en cuarentena.
+    cur.execute(
+        "INSERT INTO silver_dead_letters (guid, source, raw_payload, "
+        "rejection_reason, rejection_detail, rejected_at, first_rejected_at, batch_uuid) "
+        "VALUES (%s, %s, '{}', 'OUT_OF_RANGE', 'ingresos negativos', NOW(), NOW(), %s)",
+        (guid_natural("yahoo_fundamentals", registro), "yahoo_fundamentals", uuid4()),
+    )
+
+    assert check_campos_perdidos(cur).estado == OK
