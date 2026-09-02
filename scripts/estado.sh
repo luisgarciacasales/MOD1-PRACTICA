@@ -43,10 +43,10 @@ if [[ -n "$ULTIMA" ]]; then
     CUANDO="${ULTIMA%% *}"
     RESUMEN="$(echo "$ULTIMA" | sed 's/^[^ ]* *//' | cut -c1-58)"
     TRANSCURRIDO=$(( ( $(date +%s) - $(date -d "$CUANDO" +%s 2>/dev/null || echo 0) ) / 3600 ))
-    printf '  %-16s %s · hace %sh\n' "ÚLTIMA CORRIDA" "$(date -d "$CUANDO" '+%Y-%m-%d %H:%M')" "$TRANSCURRIDO"
+    printf '  %-16s %s · hace %sh\n' "CORRIDA PREVIA" "$(date -d "$CUANDO" '+%Y-%m-%d %H:%M')" "$TRANSCURRIDO"
     printf '  %-16s %s\n' "" "$RESUMEN"
 else
-    printf '  %-16s sin registro en data/logs/historial.log\n' "ÚLTIMA CORRIDA"
+    printf '  %-16s sin registro en data/logs/historial.log\n' "CORRIDA PREVIA"
 fi
 
 # --- Servicios -------------------------------------------------------------
@@ -58,11 +58,32 @@ printf '  %-16s %s%s\n' "SERVICIOS" "$SERVICIOS" "$OLLAMA"
 # --- Bronze: lo que falta por validar --------------------------------------
 # El número que de verdad importa: un lote escrito y no validado es dato que
 # está en disco pero todavía no existe para nadie.
-EN_DISCO=$(find data/bronze -mindepth 4 -maxdepth 4 -type d 2>/dev/null | wc -l)
-PROCESADOS=$(psql_ "SELECT COUNT(*) FROM bronze_lotes_procesados;")
+#
+# Se pregunta con el MISMO código que usa `validate`, no restando conteos. La
+# primera versión hacía `lotes_en_disco - filas_en_la_tabla` y decía "31 sin
+# validar" con todo al día: `bronze_lotes_procesados` nació en la migración 016
+# y los lotes anteriores nunca se registraron, así que la resta contaba como
+# pendiente medio historial. Un panel que miente es peor que no tenerlo.
+# Dos detalles que hay que copiar de validate o el número sale mal: el
+# batch_uuid del metadata es TEXTO y `lotes_procesados` devuelve UUID, y
+# `finnovista` se salta antes de marcarse —se recarga siempre, por los nombres
+# que aporta— así que contaría como pendiente eternamente.
+LEIDO=$(docker compose exec -T app python -c "
+from pathlib import Path
+from uuid import UUID
+from src.config import get_settings
+from src.pipeline import db
+from src.pipeline.bronze import leer_metadata, listar_lotes
+lotes = [(l, leer_metadata(l)) for l in listar_lotes(Path(get_settings().bronze_path))]
+with db.conectar() as cx, cx.cursor() as cur:
+    vistos = db.lotes_procesados(cur)
+pendientes = [l for l, m in lotes
+              if m['source'] != 'finnovista' and UUID(m['batch_uuid']) not in vistos]
+print(f'{len(lotes)} {len(pendientes)}')
+" 2>/dev/null | tail -1)
+EN_DISCO="${LEIDO%% *}"; PENDIENTES="${LEIDO##* }"
 HOY=$(ls -d data/bronze/*/*/"$(date +%F)" 2>/dev/null | wc -l)
-PENDIENTES=$(( EN_DISCO - ${PROCESADOS:-0} ))
-if (( PENDIENTES > 0 )); then
+if [[ -n "$PENDIENTES" ]] && (( PENDIENTES > 0 )); then
     printf '  %-16s %s lotes · %s de hoy · \033[33m%s sin validar\033[0m\n' "BRONZE" "$EN_DISCO" "$HOY" "$PENDIENTES"
 else
     printf '  %-16s %s lotes · %s de hoy · todos validados\n' "BRONZE" "$EN_DISCO" "$HOY"
@@ -74,17 +95,17 @@ printf '  %-16s noticias %s · precios %s · fundamentales %s · valuación %s\n
     "$(psql_ 'SELECT COUNT(*) FROM silver_market_prices;')" \
     "$(psql_ 'SELECT COUNT(*) FROM silver_fundamentals;')" \
     "$(psql_ 'SELECT COUNT(*) FROM gold_valuation;')"
-printf '  %-16s %s\n' "ÚLTIMO GOLD" \
+printf '  %-16s %s\n' "GOLD ESCRITO" \
     "$(psql_ "SELECT to_char(MAX(ingested_at AT TIME ZONE 'America/Mexico_City'), 'YYYY-MM-DD HH24:MI') FROM gold_valuation;")"
 
 # --- Copias ----------------------------------------------------------------
 RECIENTE="$(find "$COPIAS" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | sort | tail -1)"
 if [[ -n "$RECIENTE" ]]; then
     DIAS=$(( ( $(date +%s) - $(stat -c %Y "$RECIENTE") ) / 86400 ))
-    printf '  %-16s %s · hace %s día(s) · %s en total\n' "ÚLTIMA COPIA" \
+    printf '  %-16s %s · hace %s día(s) · %s en total\n' "COPIA RECIENTE" \
         "$(basename "$RECIENTE")" "$DIAS" "$(du -sh "$COPIAS" 2>/dev/null | cut -f1)"
 else
-    printf '  %-16s \033[31mNINGUNA\033[0m — corre `make backup`\n' "ÚLTIMA COPIA"
+    printf '  %-16s \033[31mNINGUNA\033[0m — corre `make backup`\n' "COPIA RECIENTE"
 fi
 
 printf '\n  Para el detalle: `make historial`, `make verify`, `make calidad`\n\n'
