@@ -353,6 +353,13 @@ viera** y se encontró por casualidad. Si alguno empieza a avisar siempre,
 recalíbralo o quítalo: un check que siempre avisa deja de leerse y gasta la
 atención que debía proteger.
 
+El sexto, `check_campos_perdidos`, es de otra clase: no vigila un patrón
+concreto que ya conozcamos, sino que **ningún dato desaparezca en silencio**,
+sea cual sea la causa. Compara Silver contra el último lote de Bronze de cada
+fuente —Bronze es inmutable, así que sirve de "antes" sin guardar histórico— y
+avisa si la fuente entregó un campo que en Silver está vacío. Los tests
+protegen las reglas que sabemos enunciar; esto cubre las que no.
+
 El quinto check existe porque este módulo falló en eso. El 29-ago-2026 Banorte
 llevaba medio año publicando un ROE de −1,1 % en Gold, y quien lo vio fue una
 persona, no el detector. **Cuando un defecto se escapa, el arreglo no termina
