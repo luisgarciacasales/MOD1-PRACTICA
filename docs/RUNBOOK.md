@@ -207,6 +207,24 @@ cambió — creció el contexto, o se está llamando más de la cuenta.
 
 ---
 
+## ¿Qué está pasando ahora?
+
+```bash
+make estado
+```
+
+Una foto en una pantalla: si hay una etapa corriendo y cuál, cuándo fue la
+última corrida, si los servicios responden, cuántos lotes de Bronze quedan sin
+validar, el volumen de datos y cuándo se hizo la última copia.
+
+**Pregunta siempre por aquí antes de improvisar un sondeo.** El 1-sep-2026 se
+dio por terminada una corrida dos veces mientras seguía ejecutándose, mirando
+con `ps` —que no está instalado en el contenedor de la aplicación— y con un
+nombre de contenedor equivocado. Lo fiable desde el host es
+`docker top mod1-app`, y es lo que hace este comando.
+
+Solo lee: no arranca nada, no para nada y no escribe.
+
 ## Cómo saber si fue bien
 
 El código de salida distingue tres casos. Para verlo:
