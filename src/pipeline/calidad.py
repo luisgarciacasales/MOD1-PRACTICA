@@ -325,12 +325,20 @@ def check_campos_perdidos(cur) -> Senal:
     que la fuente dejó legítimamente de publicar, y avisar de eso sería un falso
     positivo.
 
-    Solo se miran filas que EXISTEN en Silver: una fila ausente puede estar en
-    cuarentena, que es una decisión del contrato y no una pérdida.
+    Dos exclusiones, ambas por falsos positivos reales vistos en la primera
+    corrida. **La fila ausente de Silver** puede estar en cuarentena, que es una
+    decisión del contrato. Y **el registro rechazado** aunque la fila exista: el
+    2025-06-30 de GFNORTEO está en Silver porque lo puso el reporte en PDF,
+    mientras que el registro de Yahoo para ese mismo periodo fue rechazado
+    entero por traer ingresos negativos — sus campos no faltan, se descartaron a
+    propósito. Sin esta segunda exclusión el check avisaba de cinco campos que
+    están exactamente donde deben estar, y un detector que avisa de lo correcto
+    gasta la atención que debía proteger.
     """
     from pathlib import Path as _Path
 
     from src.config import get_settings
+    from src.contracts.rejections import guid_natural
     from src.pipeline.bronze import leer_lote, listar_lotes
 
     raiz = _Path(get_settings().bronze_path)
@@ -346,6 +354,11 @@ def check_campos_perdidos(cur) -> Senal:
         _, registros = leer_lote(lotes[-1])
 
         cur.execute(
+            "SELECT guid FROM silver_dead_letters WHERE source = %s", (source,)
+        )
+        en_cuarentena = {fila[0] for fila in cur.fetchall()}
+
+        cur.execute(
             f"SELECT ticker, period_end, {', '.join(CAMPOS_FUNDAMENTALES)} FROM {tabla}"  # noqa: S608
         )
         en_silver = {
@@ -358,6 +371,8 @@ def check_campos_perdidos(cur) -> Senal:
         for registro in registros:
             if registro.get("_parciales"):
                 continue
+            if guid_natural(source, registro) in en_cuarentena:
+                continue
             clave = (registro.get("ticker"), str(registro.get("period_end"))[:10])
             fila = en_silver.get(clave)
             if fila is None:
@@ -368,13 +383,13 @@ def check_campos_perdidos(cur) -> Senal:
                     perdidos.append(f"{clave[0]} {clave[1]} · {campo} (de {source})")
 
     if not perdidos:
-        return Senal("Campos perdidos entre Bronze y Silver", OK,
+        return Senal("Campos perdidos en la carga", OK,
                      f"0 · {comparados} filas contrastadas contra el último lote de "
                      f"{len(FUENTES_FUNDAMENTALES)} fuentes")
 
     muestra = " · ".join(perdidos[:3])
     return Senal(
-        "Campos perdidos entre Bronze y Silver", PROBLEMA,
+        "Campos perdidos en la carga", PROBLEMA,
         f"{len(perdidos)} campo(s) que la fuente entregó y en Silver están vacíos · "
         f"{muestra}{' …' if len(perdidos) > 3 else ''} · "
         "revisa el UPSERT antes de fiarte de los múltiplos que los usan",
