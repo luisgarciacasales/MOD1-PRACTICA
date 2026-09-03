@@ -10,6 +10,22 @@ Layout, según el skill medallion-pipeline:
         raw_payload.json     array de objetos, exactamente como se recibieron
         raw_payload.parquet  mismo contenido en columnar, para exploración
 
+    data/bronze/_fuentes/{ab}/{sha256}.{ext}
+        El DOCUMENTO original cuando la fuente no es una API sino un archivo.
+
+Ese último es el almacén de documentos, y existe por una asimetría que se
+detectó el 2-sep-2026: para las diez fuentes de API o RSS, Bronze contiene
+literalmente lo que devolvió la fuente, pero para las que nacen de un PDF
+contenía el resultado de pasarle una expresión regular. El documento —lo
+verdaderamente crudo— vivía en `data/manual_dropzone`, escribible y sin
+checksum. El día que mejore el extractor, ese Bronze no sirve para reprocesar.
+
+Se direcciona por CONTENIDO: el nombre del archivo es su propio SHA-256. Un
+mismo reporte referenciado por cinco lotes se guarda una vez, y un archivo cuyo
+contenido cambie es otro archivo, nunca una sobrescritura. Los dos primeros
+caracteres del hash forman un subdirectorio para no dejar miles de entradas en
+uno solo.
+
 La inmutabilidad se defiende de dos formas: el directorio del lote incluye un
 UUID (nunca colisiona, nunca se sobrescribe) y los archivos se dejan en modo
 solo-lectura tras escribirse.
@@ -41,6 +57,7 @@ class LoteBronze:
     record_count: int
     checksum_sha256: str
     ruta: Path
+    fuentes: tuple[dict[str, Any], ...] = ()
 
 
 def escribir_lote(
@@ -50,10 +67,17 @@ def escribir_lote(
     categoria: str,
     fecha: date,
     raiz_bronze: Path,
+    documentos: list[Path] | None = None,
 ) -> LoteBronze:
     """Persiste un lote en Bronze y devuelve su descriptor.
 
     `categoria` es "news" o "market" — la partición de primer nivel del PRD.
+
+    `documentos` son los archivos de los que se extrajeron los registros, para
+    las fuentes que no son una API. Se archivan en el almacén por contenido y el
+    metadata guarda su nombre, tamaño y hash, de modo que el lote quede ligado al
+    documento exacto que lo produjo y un extractor mejorado pueda reprocesarlo
+    sin depender de que alguien conserve el original en su carpeta.
     """
     batch_uuid = uuid4()
     ingested_at = datetime.now(UTC)
@@ -68,6 +92,8 @@ def escribir_lote(
     destino = raiz_bronze / categoria / source / fecha.isoformat() / batch_uuid.hex
     destino.mkdir(parents=True, exist_ok=False)
 
+    archivadas = tuple(archivar_documento(d, raiz_bronze) for d in (documentos or []))
+
     metadata = {
         "batch_uuid": str(batch_uuid),
         "source": source,
@@ -77,6 +103,8 @@ def escribir_lote(
         "record_count": len(registros),
         "checksum_sha256": checksum,
     }
+    if archivadas:
+        metadata["fuentes"] = list(archivadas)
 
     _escribir(destino / "raw_payload.json", payload)
     _escribir(
@@ -93,7 +121,40 @@ def escribir_lote(
         record_count=len(registros),
         checksum_sha256=checksum,
         ruta=destino,
+        fuentes=archivadas,
     )
+
+
+ALMACEN_FUENTES = "_fuentes"
+
+
+def archivar_documento(origen: Path, raiz_bronze: Path) -> dict[str, Any]:
+    """Copia un documento al almacén por contenido y devuelve su descriptor.
+
+    Idempotente por construcción: si el archivo ya está —mismo contenido, mismo
+    hash, misma ruta— no se vuelve a escribir. Eso permite reejecutar una
+    ingesta sin duplicar 77 MB de reportes en cada corrida.
+    """
+    datos = origen.read_bytes()
+    sha = hashlib.sha256(datos).hexdigest()
+
+    destino = raiz_bronze / ALMACEN_FUENTES / sha[:2] / f"{sha}{origen.suffix.lower()}"
+    if not destino.exists():
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_bytes(datos)
+        os.chmod(destino, _MODO_SOLO_LECTURA)
+
+    return {
+        "nombre": origen.name,
+        "sha256": sha,
+        "bytes": len(datos),
+        "ruta": str(destino.relative_to(raiz_bronze)),
+    }
+
+
+def ruta_documento(descriptor: dict[str, Any], raiz_bronze: Path) -> Path:
+    """Del descriptor guardado en el metadata al archivo del almacén."""
+    return raiz_bronze / descriptor["ruta"]
 
 
 def leer_lote(ruta: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:

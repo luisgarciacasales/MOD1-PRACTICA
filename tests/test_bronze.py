@@ -119,3 +119,70 @@ def test_registros_anidados_sobreviven_al_parquet(tmp_path):
     lote = escribir(tmp_path, anidado)
     _, registros = leer_lote(lote.ruta)
     assert registros[0]["tags"] == [{"term": "mercados"}]
+
+
+# --- El documento original también es Bronze -------------------------------
+
+
+def test_el_documento_fuente_se_archiva_por_su_contenido(tmp_path):
+    """Para las fuentes que nacen de un archivo, Bronze guardaba el resultado de
+    pasarle una regex y no el documento. El día que mejore el extractor, eso no
+    sirve para reprocesar — hay que volver al original, y el original vivía
+    fuera de Bronze, escribible y sin checksum (2-sep-2026).
+    """
+    from datetime import date
+
+    from src.pipeline.bronze import escribir_lote
+
+    pdf = tmp_path / "1T25.pdf"
+    pdf.write_bytes(b"%PDF-1.4 contenido de prueba")
+
+    lote = escribir_lote(
+        [{"ticker": "GFNORTEO.MX", "utilidad_por_accion": 5.435}],
+        source="reportes_pdf", categoria="fundamentals",
+        fecha=date(2026, 9, 2), raiz_bronze=tmp_path / "bronze",
+        documentos=[pdf],
+    )
+
+    assert len(lote.fuentes) == 1
+    descriptor = lote.fuentes[0]
+    archivado = (tmp_path / "bronze" / descriptor["ruta"])
+    assert archivado.read_bytes() == pdf.read_bytes(), "el documento no se archivó íntegro"
+    assert descriptor["nombre"] == "1T25.pdf", "se pierde el nombre con el que llegó"
+    assert archivado.stat().st_mode & 0o222 == 0, "el archivado debe ser de solo lectura"
+
+
+def test_el_mismo_documento_no_se_duplica(tmp_path):
+    """Direccionado por contenido: el nombre del archivo es su propio hash, así
+    que reejecutar la ingesta no vuelve a escribir 77 MB de reportes."""
+    from datetime import date
+
+    from src.pipeline.bronze import ALMACEN_FUENTES, escribir_lote
+
+    pdf = tmp_path / "1T25.pdf"
+    pdf.write_bytes(b"%PDF-1.4 contenido de prueba")
+    raiz = tmp_path / "bronze"
+
+    for _ in range(3):
+        escribir_lote([{"n": 1}], source="reportes_pdf", categoria="fundamentals",
+                      fecha=date(2026, 9, 2), raiz_bronze=raiz, documentos=[pdf])
+
+    archivados = list((raiz / ALMACEN_FUENTES).rglob("*.pdf"))
+    assert len(archivados) == 1, "tres lotes del mismo PDF dejaron más de una copia"
+
+
+def test_un_contenido_distinto_es_otro_archivo(tmp_path):
+    """Y si el documento cambia, no se sobrescribe: es otro archivo. Un reporte
+    republicado con correcciones no puede pisar al que ya se procesó."""
+    from datetime import date
+
+    from src.pipeline.bronze import ALMACEN_FUENTES, escribir_lote
+
+    raiz = tmp_path / "bronze"
+    pdf = tmp_path / "1T25.pdf"
+    for contenido in (b"%PDF version A", b"%PDF version B"):
+        pdf.write_bytes(contenido)
+        escribir_lote([{"n": 1}], source="reportes_pdf", categoria="fundamentals",
+                      fecha=date(2026, 9, 2), raiz_bronze=raiz, documentos=[pdf])
+
+    assert len(list((raiz / ALMACEN_FUENTES).rglob("*.pdf"))) == 2

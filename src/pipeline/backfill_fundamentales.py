@@ -217,10 +217,18 @@ def _resolver_ticker(sufijo: str | None, por_defecto: str | None) -> str | None:
     return None
 
 
-def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
-    """Devuelve (registros crudos, incidencias). No escribe nada ni valida:
-    Bronze guarda lo que dijo la fuente, y juzgarlo es tarea del contrato."""
-    filas, incidencias = [], []
+def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str], list[Path]]:
+    """Devuelve (registros crudos, incidencias, documentos). No escribe nada ni
+    valida: Bronze guarda lo que dijo la fuente, y juzgarlo es tarea del contrato.
+
+    Los `documentos` son los PDF de los que salió cada registro. Viajan a Bronze
+    junto al payload para que el lote quede ligado al papel exacto que lo
+    produjo: hoy se extraen tres campos de cada reporte, pero ahí dentro están
+    también el índice de eficiencia, el ICAP y la cartera. El día que el
+    extractor los alcance, reprocesar debe ser `validate --todo` y no depender de
+    que alguien haya conservado los PDF en su carpeta.
+    """
+    filas, incidencias, documentos = [], [], []
 
     from src.config.tickers import TICKERS_PRIORITARIOS
 
@@ -319,8 +327,9 @@ def extraer(directorio: Path, ticker: str) -> tuple[list[dict], list[str]]:
             crudo["acciones_en_circulacion"] = acciones
 
         filas.append(crudo)
+        documentos.append(archivo)
 
-    return filas, incidencias
+    return filas, incidencias, documentos
 
 
 def descargar_faltantes(destino: Path) -> tuple[list[str], list[str]]:
@@ -397,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[backfill] {directorio} no es un directorio", file=sys.stderr)
         return 1
 
-    filas, incidencias = extraer(directorio, args.ticker)
+    filas, incidencias, documentos = extraer(directorio, args.ticker)
     if not filas:
         print(f"[backfill] ningún PDF utilizable en {directorio}", file=sys.stderr)
         for i in incidencias:
@@ -430,8 +439,11 @@ def main(argv: list[str] | None = None) -> int:
         categoria="fundamentals",
         fecha=hoy_mercado(),
         raiz_bronze=Path(get_settings().bronze_path),
+        documentos=documentos,
     )
-    print(f"[backfill] lote {lote.batch_uuid} · {lote.record_count} registros")
+    mb = sum(f["bytes"] for f in lote.fuentes) / 1_048_576
+    print(f"[backfill] lote {lote.batch_uuid} · {lote.record_count} registros "
+          f"· {len(lote.fuentes)} documentos archivados ({mb:,.0f} MB)")
     print(f"[backfill] Bronze: {lote.ruta}")
     print("[backfill] a Silver se llega por `validate`, que es la única puerta: "
           "córrelo ahora o deja que lo recoja el próximo `make batch`.")
