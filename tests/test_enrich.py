@@ -219,3 +219,52 @@ def test_el_prompt_recibe_todo_el_contenido_que_silver_guarda():
     from src.prompts import LIMITE_CUERPO_PROMPT
 
     assert LIMITE_CUERPO_PROMPT == LIMITE_CONTENIDO
+
+
+# --- La inferencia como observación de Bronze -------------------------------
+
+
+def test_la_huella_del_prompt_cambia_si_cambia_el_prompt(monkeypatch):
+    """`model_version` guarda el modelo, que es solo la mitad. El 28-ago-2026
+    se recalibró la regla de relevancia del NER y cambiaron los veredictos de
+    1 350 noticias sin que nada registrara que el prompt era otro."""
+    import src.pipeline.enrich as e
+
+    antes = e.huella_prompts()
+    monkeypatch.setattr(e, "USUARIO_NER", e.USUARIO_NER + "\n- una regla más")
+    despues = e.huella_prompts()
+
+    assert antes != despues, "la huella no distingue dos versiones del prompt"
+    assert len(antes) == 16
+
+
+def test_la_huella_es_estable_entre_llamadas():
+    """Si no fuera estable, cada corrida marcaría sus filas como producidas por
+    un prompt distinto y la huella no serviría para comparar nada."""
+    import src.pipeline.enrich as e
+
+    assert e.huella_prompts() == e.huella_prompts()
+
+
+def test_reconstruir_reinterpreta_con_el_mismo_codigo_que_la_corrida():
+    """La reconstrucción usa `aplicar_ner` y `aplicar_ma`, no una segunda copia
+    del criterio. Si se duplicara, una reconstrucción podría diferir de la
+    corrida original por una discrepancia entre dos copias de la misma regla, y
+    eso sería casi imposible de detectar."""
+    import inspect
+
+    import src.pipeline.enrich as e
+
+    fuente = inspect.getsource(e.reconstruir_desde_bronze)
+    assert "aplicar_ner(" in fuente and "aplicar_ma(" in fuente
+    assert "ClienteOllama" not in fuente, "la reconstrucción no puede llamar al modelo"
+
+
+def test_el_registro_de_bronze_lleva_modelo_y_prompt():
+    """Sin esos dos campos, un lote de inferencias no permite saber por qué dos
+    veredictos del mismo texto discrepan."""
+    import src.pipeline.enrich as e
+
+    fuente = inspect_source = __import__("inspect").getsource(e.ejecutar)
+    for campo in ('"modelo"', '"prompt_sha"', '"ner"', '"ma"'):
+        assert campo in fuente, f"falta {campo} en el registro que va a Bronze"

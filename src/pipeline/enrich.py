@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import sys
 import time
 from dataclasses import dataclass, field
@@ -30,10 +31,14 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
+from pathlib import Path
+
 from src.config import get_settings
 from src.config.emisoras import ALIAS_EMISORAS
 from src.config.tickers import SECTORES_VALIDOS
+from src.config.tiempo import hoy_mercado
 from src.pipeline import db
+from src.pipeline.bronze import escribir_lote, leer_lote, listar_lotes
 from src.pipeline.extraccion import extraer_sector
 from src.pipeline.ollama import ClienteOllama, salud
 from src.prompts import (
@@ -43,6 +48,23 @@ from src.prompts import (
     USUARIO_MA,
     USUARIO_NER,
 )
+
+FUENTE_BRONZE = "ollama_enrich"
+
+
+def huella_prompts() -> str:
+    """Identifica la VERSIÓN de los prompts con que se produjo una inferencia.
+
+    Es el dato que faltaba. `gold_enriched_news` guarda `model_version`, pero el
+    modelo es solo la mitad: el 28-ago-2026 se recalibró la regla de relevancia
+    del NER y cambiaron los veredictos de 1 350 noticias sin que nada en la
+    tabla registrara que el prompt era otro. Con esta huella, dos inferencias
+    del mismo texto se pueden comparar sabiendo si discrepan por el modelo, por
+    el prompt, o porque el texto cambió.
+    """
+    material = "".join((SISTEMA_NER, USUARIO_NER, SISTEMA_MA, USUARIO_MA))
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
 
 TICKERS_VALIDOS = frozenset(ALIAS_EMISORAS)
 SENTIMIENTOS = {"positive", "negative", "neutral"}
@@ -66,6 +88,10 @@ class Enriquecida:
     traditional_banks_mentioned: list[str] = field(default_factory=list)
     sector_affected: str | None = None
     errores: list[str] = field(default_factory=list)
+    # Lo que respondió el modelo, sin interpretar. Es lo que viaja a Bronze:
+    # el resto de campos de esta clase ya son una lectura de estos dos.
+    crudo_ner: dict[str, Any] | None = None
+    crudo_ma: dict[str, Any] | None = None
 
 
 # --- Saneamiento de la salida del modelo -----------------------------------
@@ -182,11 +208,13 @@ async def enriquecer_una(
     )
 
     if r_ner.ok and r_ner.datos is not None:
+        resultado.crudo_ner = r_ner.datos
         aplicar_ner(resultado, r_ner.datos, fintechs)
     else:
         resultado.errores.append(f"NER: {r_ner.error}")
 
     if r_ma.ok and r_ma.datos is not None:
+        resultado.crudo_ma = r_ma.datos
         aplicar_ma(resultado, r_ma.datos, fintechs, texto=f"{fila['title']} {cuerpo}")
     else:
         resultado.errores.append(f"MA: {r_ma.error}")
@@ -287,8 +315,44 @@ async def ejecutar(*, limite: int, reprocesar: bool) -> int:
         )
     transcurrido = time.monotonic() - inicio
 
-    # --- Persistencia --------------------------------------------------------
+    # --- Bronze primero -------------------------------------------------------
+    # La inferencia es una observación como cualquier otra: se persiste ANTES
+    # de interpretarla, y por la misma razón que el resto de Bronze — para que
+    # Gold se pueda reconstruir sin volver a producirla.
+    #
+    # Con `temperature: 0` la inferencia es determinista (ADR-15), así que
+    # repetirla daría lo mismo mientras no cambien ni el modelo ni el prompt. Lo
+    # que no vuelve gratis son los ~40 minutos de GPU, y lo que no vuelve en
+    # absoluto es SABER con qué prompt se produjo cada fila: eso hoy no está
+    # registrado en ninguna parte y es lo que impide comparar dos versiones del
+    # prompt en vez de sobrescribir una con otra.
     modelo = f"{settings.ollama_model_ner}+{settings.ollama_model_ma}"
+    huella = huella_prompts()
+
+    inferencias = [
+        {
+            "guid": res.guid,
+            "source": FUENTE_BRONZE,
+            "modelo": modelo,
+            "prompt_sha": huella,
+            "ner": res.crudo_ner,
+            "ma": res.crudo_ma,
+            "errores": res.errores,
+        }
+        for res in resultados
+        if res.crudo_ner is not None or res.crudo_ma is not None
+    ]
+    if inferencias:
+        lote = escribir_lote(
+            inferencias,
+            source=FUENTE_BRONZE,
+            categoria="inferencia",
+            fecha=hoy_mercado(),
+            raiz_bronze=Path(settings.bronze_path),
+        )
+        print(f"[enrich] Bronze: {lote.record_count} inferencias · prompt {huella}")
+
+    # --- Persistencia --------------------------------------------------------
     nuevas = actualizadas = fallidas = 0
 
     with db.conectar() as conexion, conexion.cursor() as cur:
@@ -340,6 +404,91 @@ async def ejecutar(*, limite: int, reprocesar: bool) -> int:
     return 0
 
 
+def reconstruir_desde_bronze() -> int:
+    """Rehace `gold_enriched_news` desde los lotes de inferencia, sin GPU.
+
+    Esta función es la razón de ser de todo lo anterior. Antes, perder esa tabla
+    obligaba a volver a pasar el modelo por el corpus entero —unos 40 minutos de
+    GPU— y el resultado dependía de que el prompt siguiera siendo el mismo, cosa
+    que nadie registraba. Ahora se relee lo que el modelo dijo y se vuelve a
+    interpretar.
+
+    Reutiliza `aplicar_ner` y `aplicar_ma`, las mismas funciones que usa la
+    corrida normal. Eso importa: si la interpretación se duplicara, una
+    reconstrucción podría diferir de la corrida original por una discrepancia
+    entre dos copias del mismo criterio, y sería casi imposible de detectar.
+
+    Los lotes se aplican en orden cronológico, así que si un `guid` aparece en
+    varios —porque se reprocesó con otro prompt— gana el más reciente, que es la
+    misma regla que sigue el resto del pipeline.
+    """
+    settings = get_settings()
+    raiz = Path(settings.bronze_path)
+    lotes = listar_lotes(raiz, categoria="inferencia", source=FUENTE_BRONZE)
+    if not lotes:
+        print("[enrich] no hay lotes de inferencia en Bronze todavía", file=sys.stderr)
+        return 1
+
+    with db.conectar() as conexion, conexion.cursor(row_factory=psycopg.rows.dict_row) as cur:
+        cur.execute("SELECT commercial_name FROM silver_fintech_dict")
+        fintechs = {f["commercial_name"] for f in cur.fetchall()}
+        cur.execute(
+            "SELECT guid, source, title, content, url, published_at, ingested_at "
+            "FROM silver_news"
+        )
+        noticias = {f["guid"]: f for f in cur.fetchall()}
+
+    reconstruidas = huerfanas = 0
+    prompts = set()
+
+    with db.conectar() as conexion, conexion.cursor() as cur:
+        for ruta in lotes:
+            _, registros = leer_lote(ruta)
+            for reg in registros:
+                fila = noticias.get(reg["guid"])
+                if fila is None:
+                    # La noticia ya no está en Silver: la inferencia queda en
+                    # Bronze como registro histórico, pero no hay Gold que rehacer.
+                    huerfanas += 1
+                    continue
+
+                prompts.add(reg.get("prompt_sha", "?"))
+                res = Enriquecida(guid=reg["guid"])
+                cuerpo = (fila["content"] or "")[:LIMITE_CUERPO_PROMPT]
+                if reg.get("ner"):
+                    aplicar_ner(res, reg["ner"], fintechs)
+                if reg.get("ma"):
+                    aplicar_ma(res, reg["ma"], fintechs,
+                               texto=f"{fila['title']} {cuerpo}")
+
+                cur.execute(_SQL_UPSERT_GOLD, {
+                    "guid": res.guid, "source": fila["source"], "title": fila["title"],
+                    "content": fila["content"], "url": fila["url"],
+                    "published_at": fila["published_at"],
+                    "ingested_at": fila["ingested_at"],
+                    "ner_tickers": res.ner_tickers, "ner_persons": res.ner_persons,
+                    "ner_orgs": res.ner_orgs, "ner_sectors": res.ner_sectors,
+                    "sentiment_score": res.sentiment_score,
+                    "sentiment_label": res.sentiment_label,
+                    "is_ma_event": res.is_ma_event, "ma_event_type": res.ma_event_type,
+                    "ma_confidence": res.ma_confidence,
+                    "fintech_flag": res.fintech_flag,
+                    "fintechs_identified": res.fintechs_identified,
+                    "traditional_banks_mentioned": res.traditional_banks_mentioned,
+                    "sector_affected": res.sector_affected,
+                    "model_version": reg.get("modelo", "?"),
+                })
+                cur.fetchone()
+                reconstruidas += 1
+        conexion.commit()
+
+    print(f"[enrich] reconstruidas {reconstruidas} desde {len(lotes)} lote(s), sin GPU")
+    print(f"[enrich] versiones de prompt presentes: {', '.join(sorted(prompts))}")
+    if huerfanas:
+        print(f"[enrich] {huerfanas} inferencias sin noticia en Silver (quedan en Bronze)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="src.pipeline.enrich",
@@ -351,7 +500,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="Reprocesa también las ya enriquecidas.")
     parser.add_argument("--batch-size", type=int, default=None,
                         help="Llamadas simultáneas (por defecto NLP_BATCH_SIZE=8).")
+    parser.add_argument("--desde-bronze", action="store_true",
+                        help="Rehace gold_enriched_news releyendo los lotes de\n"
+                             "inferencia de Bronze. NO usa la GPU ni llama al\n"
+                             "modelo: reinterpreta lo que ya dijo.")
     args = parser.parse_args(argv)
+
+    if args.desde_bronze:
+        return reconstruir_desde_bronze()
 
     if args.batch_size:
         # Se inyecta en settings para que el cliente y el resumen coincidan.
