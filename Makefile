@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -262,6 +262,14 @@ backup: ## Copia de seguridad de lo irreemplazable (base, Bronze, PDF originales
 
 backups: ## Lista las copias existentes y cuánto ocupan
 	$(RUN) 'cd $(DIR) && bash scripts/backup.sh --listar'
+
+# Sin $(RUN): este corre en el MAC, que es el segundo disco. Ejecutarlo en el
+# servidor copiaría su disco sobre sí mismo.
+replicar: ## Trae las copias del servidor al Mac (segundo disco, fuera del NVMe)
+	@bash scripts/replicar.sh
+
+replicas: ## Compara qué copias hay en el servidor y cuáles en el Mac
+	@bash scripts/replicar.sh --ver
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'

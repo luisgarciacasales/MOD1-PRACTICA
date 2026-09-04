@@ -516,12 +516,37 @@ dump ilegible no es una copia, y descubrirlo el día que hace falta es tarde. La
 restauración completa se probó el 31-ago-2026 sobre una base temporal,
 comparando conteos tabla por tabla.
 
-### El límite que esto NO cubre
+### El segundo disco
 
-Las copias viven en el **mismo disco** que los datos. Eso protege contra el
-error humano —un `down -v`, un borrado, una migración que sale mal—, que es el
-riesgo frecuente. **No protege contra la pérdida del disco.** Para eso hace
-falta llevárselas a otra máquina, y no está hecho.
+```bash
+make replicar    # trae las copias del servidor al Mac, y verifica
+make replicas    # compara qué hay a cada lado
+```
+
+Las copias del servidor viven en el **mismo NVMe** que los datos —sin RAID, sin
+ZFS— así que protegen del error humano pero no del fallo del disco: ese modo de
+fallo se lleva original y copia a la vez. `make replicar` las trae al Mac.
+
+**Corre en el Mac, no en el servidor.** El canal SSH ya existe en esa dirección,
+así que el servidor no necesita credenciales nuevas; solo se lee de él.
+
+**No es un espejo, y es a propósito.** Sin `--delete`: si alguien borrara el
+árbol de copias del servidor, un espejo replicaría el borrado y el segundo nivel
+no habría servido de nada. El Mac acumula y aplica su propia retención (30,
+frente a 14 en el servidor) — un archivo independiente, no un reflejo.
+
+**Se verifica de verdad:** tras copiar se contrasta el SHA-256 del volcado más
+reciente a los dos lados, y el script falla si no coinciden. Un respaldo que
+nadie comprueba es una suposición.
+
+Cuesta poco: los enlaces duros se preservan (`-H`), así que las cinco copias
+ocupan 494 MB en vez de 1,7 GB, y una réplica sin cambios tarda un segundo.
+
+### Lo que sigue sin cubrir
+
+Un fallo del equipo entero —robo, incendio, un problema eléctrico serio— con el
+Mac en el mismo sitio. Para eso haría falta una tercera copia en otra
+ubicación, y hoy no está.
 
 ---
 
