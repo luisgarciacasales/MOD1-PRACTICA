@@ -64,10 +64,14 @@ printf '  %-16s %s%s\n' "SERVICIOS" "$SERVICIOS" "$OLLAMA"
 # validar" con todo al día: `bronze_lotes_procesados` nació en la migración 016
 # y los lotes anteriores nunca se registraron, así que la resta contaba como
 # pendiente medio historial. Un panel que miente es peor que no tenerlo.
-# Dos detalles que hay que copiar de validate o el número sale mal: el
-# batch_uuid del metadata es TEXTO y `lotes_procesados` devuelve UUID, y
-# `finnovista` se salta antes de marcarse —se recarga siempre, por los nombres
-# que aporta— así que contaría como pendiente eternamente.
+# Tres detalles que hay que copiar de validate o el número sale mal:
+#   · el batch_uuid del metadata es TEXTO y `lotes_procesados` devuelve UUID;
+#   · `finnovista` se salta antes de marcarse —se recarga siempre, por los
+#     nombres que aporta— así que contaría como pendiente eternamente;
+#   · la categoría `inferencia` NO la consume validate. Esos lotes van a Gold
+#     por `enrich --desde-bronze`, así que llamarlos "sin validar" es un aviso
+#     que no se puede atender nunca. Se cuentan aparte, que además es
+#     información útil: dice cuánta inferencia hay respaldada en Bronze.
 LEIDO=$(docker compose exec -T app python -c "
 from pathlib import Path
 from uuid import UUID
@@ -77,16 +81,24 @@ from src.pipeline.bronze import leer_metadata, listar_lotes
 lotes = [(l, leer_metadata(l)) for l in listar_lotes(Path(get_settings().bronze_path))]
 with db.conectar() as cx, cx.cursor() as cur:
     vistos = db.lotes_procesados(cur)
+inferencia = [m for _, m in lotes if m['categoria'] == 'inferencia']
 pendientes = [l for l, m in lotes
-              if m['source'] != 'finnovista' and UUID(m['batch_uuid']) not in vistos]
-print(f'{len(lotes)} {len(pendientes)}')
+              if m['categoria'] != 'inferencia'
+              and m['source'] != 'finnovista'
+              and UUID(m['batch_uuid']) not in vistos]
+print(f\"{len(lotes)} {len(pendientes)} {len(inferencia)} {sum(m['record_count'] for m in inferencia)}\")
 " 2>/dev/null | tail -1)
-EN_DISCO="${LEIDO%% *}"; PENDIENTES="${LEIDO##* }"
+read -r EN_DISCO PENDIENTES INF_LOTES INF_REGS <<< "$LEIDO"
 HOY=$(ls -d data/bronze/*/*/"$(date +%F)" 2>/dev/null | wc -l)
 if [[ -n "$PENDIENTES" ]] && (( PENDIENTES > 0 )); then
     printf '  %-16s %s lotes · %s de hoy · \033[33m%s sin validar\033[0m\n' "BRONZE" "$EN_DISCO" "$HOY" "$PENDIENTES"
 else
     printf '  %-16s %s lotes · %s de hoy · todos validados\n' "BRONZE" "$EN_DISCO" "$HOY"
+fi
+
+if [[ -n "${INF_LOTES:-}" ]] && (( INF_LOTES > 0 )); then
+    printf '  %-16s %s lotes · %s inferencias respaldadas · las consume `enrich --desde-bronze`\n' \
+        "INFERENCIA" "$INF_LOTES" "$INF_REGS"
 fi
 
 # --- Volumen de datos ------------------------------------------------------
