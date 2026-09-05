@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas determinismo
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -265,6 +265,9 @@ backups: ## Lista las copias existentes y cuánto ocupan
 
 # Sin $(RUN): este corre en el MAC, que es el segundo disco. Ejecutarlo en el
 # servidor copiaría su disco sobre sí mismo.
+determinismo: ## Mide cuánto varía la inferencia entre corridas y si depende de la concurrencia (usa GPU)
+	$(RUN) 'cd $(DIR) && bash scripts/experimento_determinismo.sh $(N)'
+
 replicar: ## Trae las copias del servidor al Mac (segundo disco, fuera del NVMe)
 	@bash scripts/replicar.sh
 
