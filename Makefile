@@ -213,6 +213,11 @@ refresco: ## Refresco histórico SEMANAL (recoge el reajuste de Adj Close por di
 	# su lugar: los RSS no tienen histórico que refrescar.
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.ingest --refresco-completo --source yahoo_finance --source banxico'
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.validate'
+	# Y recalcular Gold: el refresco reajusta `adj_close` hacia atrás por
+	# dividendos y splits, así que los múltiplos y el ROE quedan calculados
+	# sobre precios viejos hasta que pase `transform`. Sin esta línea había que
+	# acordarse, y el síntoma —una valuación desfasada— no se nota mirando.
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.transform'
 
 bronze: ## Inventario de lotes en Bronze
 	$(RUN) 'cd $(DIR) && find data/bronze -name metadata.json -printf "%h\n" 2>/dev/null | sed "s|data/bronze/||" | sort || echo "(Bronze vacío)"'
