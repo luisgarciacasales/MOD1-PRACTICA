@@ -15,10 +15,24 @@ comando y sigue donde estaba. Esa es también la razón de escribir por mes en
 lugar de acumular todo y guardar al final: un fallo en el mes 47 no puede
 costar los 46 anteriores.
 
-**Por qué tarda.** Se pide un artículo por segundo al Internet Archive, que
-ofrece este servicio gratis y sin autenticación. Podría ir diez veces más
-rápido; sería un uso abusivo de infraestructura pública mantenida con
-donaciones. El filtro por titular ya reduce las descargas al 17%.
+**Por qué tarda, y por qué no se puede acortar.** Se pide un artículo por
+segundo al Internet Archive, que ofrece este servicio gratis y sin
+autenticación. Podría ir diez veces más rápido; sería un uso abusivo de
+infraestructura pública mantenida con donaciones.
+
+**Dónde se filtra, y por qué ahí.** La primera versión filtraba por el titular
+—que viene en la URL— para no descargar el 98% de los artículos. Se midió y
+resultó demasiado agresivo: de 30 artículos descartados por titular, 3
+mencionaban emisoras en el CUERPO. Sobre los 488 que descarta un mes típico de
+`/mercados/`, eso son unos 49 artículos perdidos frente a los 8 conservados
+— tiraba el 85% de la señal. Y no era señal menor: «IPC tuvo su peor febrero
+desde el 2009» menciona a Quálitas y a FEMSA, y es exactamente el tipo de nota
+que relaciona un movimiento de mercado con emisoras concretas.
+
+Así que **se descarga todo y se filtra por el texto completo**. El coste es
+tiempo de máquina desatendida; lo que se gana es siete veces más corpus. Quien
+decide de verdad si la emisora es el sujeto de la noticia sigue siendo el NER
+en `enrich`, según ADR-17 — aquí solo se decide qué merece llegar hasta él.
 """
 
 from __future__ import annotations
@@ -75,6 +89,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="Descubre y filtra sin descargar ni escribir.")
     parser.add_argument("--rehacer", action="store_true",
                         help="No saltar los meses que ya tienen lote.")
+    parser.add_argument("--filtro", choices=("cuerpo", "titular"), default="cuerpo",
+                        help="cuerpo (por defecto): descarga todo y filtra por el\n"
+                             "  texto completo. Siete veces más corpus, y siete\n"
+                             "  veces más tiempo de descarga.\n"
+                             "titular: solo baja lo que ya menciona una emisora en\n"
+                             "  la URL. Rápido, pero pierde el 85% de la señal.")
     args = parser.parse_args(argv)
 
     medio = MEDIOS[args.medio]
@@ -105,19 +125,32 @@ def main(argv: list[str] | None = None) -> int:
         # Y descarta lo que el índice devolvió con fecha de otro mes: el CDX
         # filtra por fecha de CAPTURA, no de publicación.
         del_mes = [h for h in unicos.values() if h.fecha[:7] == f"{anio}-{mes:02d}"]
-        relevantes = [h for h in del_mes if menciona_emisora(h.titular, ALIAS_EMISORAS)]
+        por_titular = [h for h in del_mes if menciona_emisora(h.titular, ALIAS_EMISORAS)]
+        candidatos = por_titular if args.filtro == "titular" else del_mes
 
         tot_vistos += len(del_mes)
-        tot_filtrados += len(relevantes)
 
         if args.dry_run:
             print(f"[hemeroteca] {anio}-{mes:02d}: {len(del_mes):>4} archivados · "
-                  f"{len(relevantes):>3} con emisora", flush=True)
-            for h in relevantes[:2]:
+                  f"{len(por_titular):>3} con emisora en el titular · "
+                  f"se descargarían {len(candidatos)}", flush=True)
+            for h in por_titular[:2]:
                 print(f"                {h.fecha} · {h.titular[:70]}", flush=True)
+            tot_filtrados += len(por_titular)
             continue
 
-        registros = [r for r in (recuperar(h) for h in relevantes) if r is not None]
+        # El filtro definitivo va sobre el texto ya descargado: una nota puede
+        # nombrar a la emisora solo en el cuerpo, y son la mayoría.
+        registros = []
+        for h in candidatos:
+            r = recuperar(h)
+            if r is None:
+                continue
+            if not menciona_emisora(f" {r['title']} {r['content']} ", ALIAS_EMISORAS):
+                continue
+            registros.append(r)
+
+        tot_filtrados += len(registros)
         tot_recuperados += len(registros)
 
         if not registros:
@@ -135,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
             raiz_bronze=raiz,
         )
         print(f"[hemeroteca] {anio}-{mes:02d}: {len(del_mes):>4} archivados · "
-              f"{len(relevantes):>3} con emisora · {len(registros):>3} recuperados "
+              f"{len(candidatos):>4} descargados · {len(registros):>3} con emisora "
               f"· lote {str(lote.batch_uuid)[:8]}", flush=True)
 
     print(f"\n[hemeroteca] {tot_vistos} artículos vistos · {tot_filtrados} con emisora "
