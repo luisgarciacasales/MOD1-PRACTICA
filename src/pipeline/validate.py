@@ -30,6 +30,7 @@ from uuid import UUID
 
 from src.config import get_settings
 from src.config.banxico_series import SERIES_POR_ID
+from src.config.hemeroteca import FUENTES_ARCHIVO
 from src.config.inegi_series import INDICADORES_POR_ID
 from src.contracts import (
     DeadLetter,
@@ -46,8 +47,13 @@ from src.pipeline.backfill_fundamentales import FUENTE as FUENTE_REPORTES_PDF
 from src.pipeline.bronze import leer_lote, leer_metadata, listar_lotes
 from src.pipeline.extraccion import extraer_entidades, extraer_sector, extraer_tickers
 
+# Las de archivo se suman aquí porque su forma es la misma —título, cuerpo,
+# URL, fecha— y deben pasar por el mismo contrato. Lo único que cambia es de
+# dónde salieron y cuándo: son noticias de 2020 recuperadas en 2026, y llevan
+# `source` propio para que eso no se confunda nunca con lo ingerido en su día.
 FUENTES_NOTICIAS = {
     "eventos_relevantes", "financiero", "bloomberg", "google_news", "reportes_ir",
+    *FUENTES_ARCHIVO,
 }
 
 # Límites del contrato (PRD §5.2). Se aplican aquí, antes de validar, porque
@@ -101,7 +107,10 @@ def _texto_de_entrada(crudo: dict[str, Any]) -> str:
     disponible para no perder señal en la extracción léxica.
     """
     candidatos: list[str] = []
-    for clave in ("summary", "description", "subtitle"):
+    # `content` lo emiten las fuentes de archivo, que no son un feed sino el
+    # cuerpo ya extraído del artículo. Va primero en la lista por claridad, pero
+    # el criterio sigue siendo el texto más largo, así que el orden no decide.
+    for clave in ("content", "summary", "description", "subtitle"):
         valor = crudo.get(clave)
         if isinstance(valor, str):
             candidatos.append(valor)
