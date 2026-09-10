@@ -47,8 +47,18 @@ from src.texto import normalizar, terminos_presentes
 # funcionó (SPA sin tabla en el HTML crudo, ADR-11); la segunda seguía
 # bloqueada por WAF (403) sin acuerdo de acceso. `eventos_relevantes` la
 # reemplaza — ver src/config/eventos_relevantes.py para el porqué.
+# Las fuentes en vivo y las de archivo. Son dos listas porque significan cosas
+# distintas —una noticia ingerida el día que se publicó y otra recuperada del
+# archivo años después— pero comparten contrato, y por eso ambas viven en el
+# mismo `Literal`.
+#
+# Registrar una fuente nueva exige tocar DOS sitios: `FUENTES_NOTICIAS` en
+# `validate.py`, que decide qué lote se procesa, y este `Literal`, que decide
+# qué `source` acepta el contrato. El 10-sep-2026 se registró solo el primero y
+# los 378 artículos recuperados fueron enteros a cuarentena con UNKNOWN_SOURCE.
 SourceNoticias = Literal[
-    "eventos_relevantes", "financiero", "bloomberg", "google_news", "reportes_ir"
+    "eventos_relevantes", "financiero", "bloomberg", "google_news", "reportes_ir",
+    "eleconomista_archivo", "elfinanciero_archivo",
 ]
 
 _URL_ADAPTER = TypeAdapter(HttpUrl)

@@ -64,6 +64,30 @@ def test_las_fuentes_de_archivo_estan_registradas_en_validate():
     assert FUENTES_ARCHIVO <= FUENTES_NOTICIAS
 
 
+def test_las_fuentes_de_archivo_las_acepta_el_CONTRATO():
+    """Registrar una fuente exige tocar DOS sitios, y esta prueba existe porque
+    la anterior daba falsa confianza: el 10-sep se registró solo en `validate`
+    y los 378 artículos recuperados fueron ENTEROS a cuarentena con
+    UNKNOWN_SOURCE. Un test que comprueba la mitad de una condición es peor que
+    no tenerlo, porque se lee como si cubriera el todo."""
+    from src.contracts.news import SourceNoticias
+
+    aceptadas = set(SourceNoticias.__args__)
+    assert FUENTES_ARCHIVO <= aceptadas, (
+        f"el contrato rechazará: {FUENTES_ARCHIVO - aceptadas}"
+    )
+
+
+def test_validate_y_el_contrato_no_pueden_discrepar():
+    """La condición completa: toda fuente que `validate` procese como noticia
+    debe ser una que el contrato acepte. Si alguien añade una en un sitio y
+    olvida el otro, el lote se procesa y se rechaza entero."""
+    from src.contracts.news import SourceNoticias
+    from src.pipeline.validate import FUENTES_NOTICIAS
+
+    assert FUENTES_NOTICIAS <= set(SourceNoticias.__args__)
+
+
 def test_cada_medio_declara_source_propio():
     """El archivo de El Financiero no puede mezclarse con su feed en vivo: son
     noticias de 2020 recuperadas en 2026, y el `source` es lo que impide
