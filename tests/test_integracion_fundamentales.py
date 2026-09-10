@@ -205,14 +205,23 @@ def test_el_check_de_la_base_acepta_todas_las_fuentes_del_contrato(cur):
     Esta prueba es la única que puede ver las tres a la vez, porque el CHECK
     solo existe dentro de PostgreSQL.
     """
+    import hashlib
+
     from src.contracts.news import SourceNoticias
 
-    for fuente in SourceNoticias.__args__:
+    # El guid tiene su propio CHECK: debe ser un SHA-256. Un identificador
+    # inventado lo viola y haría fallar esta prueba por el motivo equivocado.
+    guids = {
+        f: hashlib.sha256(f"prueba-{f}".encode()).hexdigest()
+        for f in SourceNoticias.__args__
+    }
+    for fuente, guid in guids.items():
         cur.execute(
             "INSERT INTO silver_news (guid, source, title, content, url, "
             "published_at, ingested_at, enriched, macro_bypass, raw_batch_uuid) "
             "VALUES (%s, %s, 'x', 'y', 'https://e.mx/a', NOW(), NOW(), false, false, %s)",
-            (f"prueba-{fuente}", fuente, uuid4()),
+            (guid, fuente, uuid4()),
         )
-    cur.execute("SELECT COUNT(*) FROM silver_news WHERE guid LIKE 'prueba-%'")
-    assert cur.fetchone()[0] == len(SourceNoticias.__args__)
+    cur.execute("SELECT COUNT(*) FROM silver_news WHERE guid = ANY(%s)",
+                (list(guids.values()),))
+    assert cur.fetchone()[0] == len(guids)
