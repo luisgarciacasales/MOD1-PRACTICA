@@ -190,3 +190,29 @@ def test_un_registro_en_cuarentena_no_cuenta_como_campo_perdido(cur, tmp_path, m
     )
 
     assert check_campos_perdidos(cur).estado == OK
+
+
+# --- Las tres listas de fuentes no pueden discrepar --------------------------
+
+
+def test_el_check_de_la_base_acepta_todas_las_fuentes_del_contrato(cur):
+    """Registrar una fuente de noticias exige tocar TRES listas: la de
+    `validate` (qué lote se procesa), el `Literal` del contrato (qué source se
+    acepta) y el CHECK de la tabla (qué source se puede escribir).
+
+    El 10-sep-2026 se tocó una: los 378 artículos del archivo fueron enteros a
+    cuarentena. Se corrigió la segunda y reventó la tercera con CheckViolation.
+    Esta prueba es la única que puede ver las tres a la vez, porque el CHECK
+    solo existe dentro de PostgreSQL.
+    """
+    from src.contracts.news import SourceNoticias
+
+    for fuente in SourceNoticias.__args__:
+        cur.execute(
+            "INSERT INTO silver_news (guid, source, title, content, url, "
+            "published_at, ingested_at, enriched, macro_bypass, raw_batch_uuid) "
+            "VALUES (%s, %s, 'x', 'y', 'https://e.mx/a', NOW(), NOW(), false, false, %s)",
+            (f"prueba-{fuente}", fuente, uuid4()),
+        )
+    cur.execute("SELECT COUNT(*) FROM silver_news WHERE guid LIKE 'prueba-%'")
+    assert cur.fetchone()[0] == len(SourceNoticias.__args__)
