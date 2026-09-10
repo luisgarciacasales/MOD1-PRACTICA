@@ -83,3 +83,62 @@ def test_el_normalizador_entiende_el_cuerpo_de_archivo():
              "link": "https://ejemplo.mx/a.html", "published": "2020-03-23"}
     assert "Banorte" in _texto_de_entrada(crudo)
     assert _fecha_de_entrada(crudo) == "2020-03-23"
+
+
+# --- Un mes incompleto no puede darse por hecho ------------------------------
+
+
+def test_descubrir_reintenta_antes_de_rendirse(monkeypatch):
+    """En el recorrido de 2018 se perdió `/empresas/` de octubre por un
+    HTTPError suelto, y el mes quedó con 681 artículos en vez de ~1.100. Un
+    fallo de red de un segundo no puede costar un mes de archivo."""
+    import src.sources.hemeroteca as h
+
+    llamadas = {"n": 0}
+
+    class RespuestaOK:
+        text = ""
+        def raise_for_status(self): return None
+
+    def falla_dos_veces(*a, **k):
+        llamadas["n"] += 1
+        if llamadas["n"] < 3:
+            raise RuntimeError("503 transitorio")
+        return RespuestaOK()
+
+    monkeypatch.setattr(h.requests, "get", falla_dos_veces)
+    monkeypatch.setattr(h.time, "sleep", lambda s: None)
+
+    h.descubrir("ejemplo.mx", "mercados", 2018, 10, patron_fecha=PATRON)
+    assert llamadas["n"] == 3, "no reintentó lo suficiente"
+
+
+def test_descubrir_propaga_el_fallo_si_no_hay_forma(monkeypatch):
+    """Tras agotar los intentos la excepción SUBE. Quien llama decide, y lo
+    que no puede hacer es dar el mes por bueno."""
+    import src.sources.hemeroteca as h
+
+    def siempre_falla(*a, **k):
+        raise RuntimeError("503")
+
+    monkeypatch.setattr(h.requests, "get", siempre_falla)
+    monkeypatch.setattr(h.time, "sleep", lambda s: None)
+
+    with pytest.raises(RuntimeError):
+        h.descubrir("ejemplo.mx", "mercados", 2018, 10, patron_fecha=PATRON)
+
+
+def test_un_mes_con_seccion_fallida_no_escribe_lote():
+    """Escribirlo lo daría por hecho y el reanudado lo saltaría para siempre,
+    dejándolo mutilado en silencio — que es exactamente lo que pasó con
+    2018-10. Se comprueba sobre el código porque el comportamiento vive en el
+    flujo de control, no en un valor de retorno."""
+    import inspect
+
+    from src.pipeline import backfill_noticias as b
+
+    fuente = inspect.getsource(b.main)
+    assert "incompleto" in fuente
+    i_salto = fuente.index("SALTADO sin escribir")
+    i_escribe = fuente.index("escribir_lote(")
+    assert i_salto < i_escribe, "el abandono debe ocurrir ANTES de escribir el lote"

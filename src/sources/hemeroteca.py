@@ -61,12 +61,21 @@ def _titular_de_url(url: str, patron_fecha: str) -> str:
 
 
 def descubrir(dominio: str, seccion: str, anio: int, mes: int, *,
-              patron_fecha: str, limite: int = 5000) -> list[Hallazgo]:
+              patron_fecha: str, limite: int = 5000,
+              intentos: int = 3) -> list[Hallazgo]:
     """Qué artículos de esa sección archivó el Archive ese mes.
 
     `collapse=urlkey` deduplica: el mismo artículo suele estar archivado varias
     veces y solo interesa una copia. `statuscode:200` descarta los snapshots que
     guardaron un error del servidor en lugar del artículo.
+
+    **Reintenta**, y esta parte no es adorno. El índice CDX devuelve errores
+    transitorios bajo carga: en el recorrido de 2018 se perdió `/empresas/` de
+    octubre por un HTTPError suelto, y ese mes quedó con 681 artículos en lugar
+    de los ~1.100 habituales. Un fallo de red de un segundo no puede costar un
+    mes de archivo, así que se insiste con espera creciente antes de rendirse.
+    Si aun así falla, la excepción sube: quien llama debe decidir, y lo que NO
+    puede hacer es dar el mes por bueno.
     """
     desde, hasta = f"{anio}{mes:02d}01", f"{anio}{mes:02d}31"
     params = {
@@ -76,8 +85,17 @@ def descubrir(dominio: str, seccion: str, anio: int, mes: int, *,
         "collapse": "urlkey", "filter": "statuscode:200",
         "limit": str(limite),
     }
-    resp = requests.get(CDX, params=params, headers=_CABECERAS, timeout=TIMEOUT_CDX)
-    resp.raise_for_status()
+
+    for intento in range(1, intentos + 1):
+        try:
+            resp = requests.get(CDX, params=params, headers=_CABECERAS,
+                                timeout=TIMEOUT_CDX)
+            resp.raise_for_status()
+            break
+        except Exception:  # noqa: BLE001
+            if intento == intentos:
+                raise
+            time.sleep(PAUSA * 5 * intento)
 
     hallazgos: list[Hallazgo] = []
     for linea in resp.text.splitlines():

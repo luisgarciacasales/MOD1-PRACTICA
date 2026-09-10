@@ -111,14 +111,26 @@ def main(argv: list[str] | None = None) -> int:
             tot_saltados += 1
             continue
 
+        # Un mes solo cuenta si TODAS sus secciones se pudieron consultar. Si
+        # una falla, se abandona el mes sin escribir lote: escribirlo lo daría
+        # por hecho y el reanudado lo saltaría para siempre, dejándolo mutilado
+        # en silencio. Perder los minutos de descarga de ese mes es barato;
+        # perder un tercio de su archivo sin que nadie lo note, no.
         hallazgos = []
+        incompleto = None
         for seccion in medio.secciones:
             try:
                 hallazgos += descubrir(medio.dominio, seccion, anio, mes,
                                        patron_fecha=medio.patron_fecha)
             except Exception as exc:  # noqa: BLE001
-                print(f"[hemeroteca] {anio}-{mes:02d}/{seccion}: "
-                      f"fallo al descubrir ({type(exc).__name__})", file=sys.stderr, flush=True)
+                incompleto = f"{seccion} ({type(exc).__name__})"
+                break
+
+        if incompleto:
+            print(f"[hemeroteca] {anio}-{mes:02d}: SALTADO sin escribir · "
+                  f"no se pudo consultar {incompleto} tras 3 intentos · "
+                  "se reintentará al relanzar", file=sys.stderr, flush=True)
+            continue
 
         # Deduplica por URL: una misma nota aparece en varias secciones.
         unicos = {h.url: h for h in hallazgos}
