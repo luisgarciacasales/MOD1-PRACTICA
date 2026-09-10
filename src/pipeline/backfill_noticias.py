@@ -46,7 +46,19 @@ from src.config import get_settings
 from src.config.emisoras import ALIAS_EMISORAS
 from src.config.hemeroteca import MEDIOS
 from src.pipeline.bronze import escribir_lote, leer_metadata, listar_lotes
-from src.sources.hemeroteca import descubrir, menciona_emisora, recuperar
+from src.sources.hemeroteca import (
+    FalloDeArchivo,
+    descubrir,
+    menciona_emisora,
+    recuperar,
+)
+
+# Cuándo dar un mes por perdido durante las descargas. El umbral relativo
+# distingue "algunos snapshots rotos", que es normal, de "el servicio se cayó";
+# el mínimo absoluto evita abandonar un mes con pocos candidatos por dos fallos
+# sueltos.
+UMBRAL_FALLOS = 0.30
+MIN_FALLOS_ABORTA = 15
 
 
 def _meses(desde: str, hasta: str) -> list[tuple[int, int]]:
@@ -153,14 +165,33 @@ def main(argv: list[str] | None = None) -> int:
 
         # El filtro definitivo va sobre el texto ya descargado: una nota puede
         # nombrar a la emisora solo en el cuerpo, y son la mayoría.
+        # Un mes tampoco cuenta si el servicio se cayó a mitad de las descargas.
+        # `FalloDeArchivo` es el Archive no respondiendo; `None` es un artículo
+        # que no sirve. Si los primeros superan el umbral, el mes se abandona
+        # igual que si hubiera fallado el índice — lo contrario dejaría un lote
+        # casi vacío marcado como procesado.
         registros = []
+        fallos = 0
         for h in candidatos:
-            r = recuperar(h)
+            try:
+                r = recuperar(h)
+            except FalloDeArchivo:
+                fallos += 1
+                if fallos > max(MIN_FALLOS_ABORTA, len(candidatos) * UMBRAL_FALLOS):
+                    incompleto = f"descargas ({fallos} fallos de {len(candidatos)})"
+                    break
+                continue
             if r is None:
                 continue
             if not menciona_emisora(f" {r['title']} {r['content']} ", ALIAS_EMISORAS):
                 continue
             registros.append(r)
+
+        if incompleto:
+            print(f"[hemeroteca] {anio}-{mes:02d}: SALTADO sin escribir · "
+                  f"{incompleto} · se reintentará al relanzar",
+                  file=sys.stderr, flush=True)
+            continue
 
         tot_filtrados += len(registros)
         tot_recuperados += len(registros)

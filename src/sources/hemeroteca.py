@@ -42,6 +42,16 @@ _CABECERAS = {
 }
 
 
+class FalloDeArchivo(Exception):
+    """El Archive no pudo servir el artículo: red, 5xx, o servicio caído.
+
+    Se distingue de "el artículo no sirve" a propósito. Devolver `None` para
+    las dos cosas hacía indistinguible un mes sin noticias relevantes de un mes
+    en el que el servicio estaba caído, y el segundo caso NO se puede dar por
+    procesado: quedaría un lote casi vacío marcado como completo.
+    """
+
+
 @dataclass(frozen=True)
 class Hallazgo:
     """Una URL archivada que el índice devolvió, antes de descargar nada."""
@@ -178,11 +188,17 @@ def _cuerpo(html: str) -> tuple[str, str]:
 
 
 def recuperar(hallazgo: Hallazgo) -> dict | None:
-    """Baja un artículo del archivo. `None` si no se pudo o vino vacío.
+    """Baja un artículo del archivo.
 
-    Fail-soft por artículo: en un recorrido de miles, algunos snapshots están
-    truncados o guardaron una página de error. Que uno falle no puede costar
-    los demás, y tampoco merece un reintento — hay otros cientos esperando.
+    `None` significa **el artículo no sirve** — snapshot truncado, página sin
+    cuerpo suficiente. Eso es normal en un recorrido de miles y no merece
+    reintento: hay otros cientos esperando.
+
+    `FalloDeArchivo` significa **el servicio no respondió**. Son cosas
+    distintas y confundirlas costaba caro: el 10-sep-2026 el Internet Archive
+    estuvo caído devolviendo 503, y sin esta distinción un mes entero se habría
+    escrito casi vacío y marcado como procesado, quedando mutilado en silencio
+    igual que 2018-10.
     """
     time.sleep(PAUSA)
     try:
@@ -191,6 +207,10 @@ def recuperar(hallazgo: Hallazgo) -> dict | None:
             headers=_CABECERAS, timeout=TIMEOUT_ART,
         )
         resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        raise FalloDeArchivo(str(exc)[:120]) from exc
+
+    try:
         resp.encoding = resp.encoding or "utf-8"
         titulo, texto = _cuerpo(resp.text)
     except Exception:  # noqa: BLE001

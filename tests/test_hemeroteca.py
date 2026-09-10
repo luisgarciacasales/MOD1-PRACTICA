@@ -142,3 +142,60 @@ def test_un_mes_con_seccion_fallida_no_escribe_lote():
     i_salto = fuente.index("SALTADO sin escribir")
     i_escribe = fuente.index("escribir_lote(")
     assert i_salto < i_escribe, "el abandono debe ocurrir ANTES de escribir el lote"
+
+
+# --- Un servicio caído no es un mes sin noticias -----------------------------
+
+
+def test_recuperar_distingue_servicio_caido_de_articulo_inservible(monkeypatch):
+    """El 10-sep-2026 el Internet Archive estuvo devolviendo 503. Sin esta
+    distinción, un mes entero se habría escrito casi vacío y marcado como
+    procesado — mutilado en silencio, igual que 2018-10."""
+    import src.sources.hemeroteca as h
+
+    hallazgo = h.Hallazgo(url="https://x.mx/a-20200301-0001.html",
+                          timestamp="20200302", titular="a", fecha="2020-03-01")
+    monkeypatch.setattr(h.time, "sleep", lambda s: None)
+
+    def cae(*a, **k):
+        raise RuntimeError("503 Server Error: Service Unavailable")
+
+    monkeypatch.setattr(h.requests, "get", cae)
+    with pytest.raises(h.FalloDeArchivo):
+        h.recuperar(hallazgo)
+
+
+def test_un_articulo_sin_cuerpo_devuelve_none_no_excepcion(monkeypatch):
+    """Snapshots truncados los hay a cientos en un recorrido de miles. Eso es
+    normal y no puede abortar el mes."""
+    import src.sources.hemeroteca as h
+
+    class Resp:
+        encoding = "utf-8"
+        text = "<html><body><p>corto</p></body></html>"
+        def raise_for_status(self): return None
+
+    monkeypatch.setattr(h.time, "sleep", lambda s: None)
+    monkeypatch.setattr(h.requests, "get", lambda *a, **k: Resp())
+
+    hallazgo = h.Hallazgo(url="https://x.mx/a-20200301-0001.html",
+                          timestamp="20200302", titular="a", fecha="2020-03-01")
+    assert h.recuperar(hallazgo) is None
+
+
+def test_el_mes_se_abandona_si_las_descargas_se_caen():
+    """El umbral relativo distingue snapshots rotos sueltos de un servicio
+    caído; el mínimo absoluto evita abandonar un mes de pocos candidatos por
+    dos fallos. Se comprueba sobre el flujo porque el abandono es control, no
+    valor de retorno."""
+    import inspect
+
+    from src.pipeline import backfill_noticias as b
+
+    assert 0 < b.UMBRAL_FALLOS < 1
+    assert b.MIN_FALLOS_ABORTA > 0
+    fuente = inspect.getsource(b.main)
+    assert "FalloDeArchivo" in fuente
+    i_abort = fuente.index("descargas (")
+    i_escribe = fuente.index("escribir_lote(")
+    assert i_abort < i_escribe, "el abandono debe ocurrir ANTES de escribir el lote"
