@@ -217,9 +217,14 @@ def test_el_check_de_la_base_acepta_todas_las_fuentes_del_contrato(cur):
     }
     for fuente, guid in guids.items():
         cur.execute(
+            # `tickers` no es opcional aquí: otro CHECK exige que la fila
+            # tenga ticker, sector o entidad, salvo bypass macro. Es la
+            # integridad semántica del PRD §5.2 — una noticia sin ninguna de
+            # las tres no dice nada de nadie.
             "INSERT INTO silver_news (guid, source, title, content, url, "
-            "published_at, ingested_at, enriched, macro_bypass, raw_batch_uuid) "
-            "VALUES (%s, %s, 'x', 'y', 'https://e.mx/a', NOW(), NOW(), false, false, %s)",
+            "published_at, ingested_at, tickers, enriched, macro_bypass, raw_batch_uuid) "
+            "VALUES (%s, %s, 'x', 'y', 'https://e.mx/a', NOW(), NOW(), "
+            "ARRAY['GFNORTEO.MX'], false, false, %s)",
             (guid, fuente, uuid4()),
         )
     cur.execute("SELECT COUNT(*) FROM silver_news WHERE guid = ANY(%s)",
