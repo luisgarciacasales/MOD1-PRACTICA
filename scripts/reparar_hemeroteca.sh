@@ -23,6 +23,9 @@ set -uo pipefail
 MEDIO="${1:-eleconomista}"
 DESDE="${2:-2018-01}"
 HASTA="${3:-2025-12}"
+# Meses que SÍ tienen lote pero se sabe que quedaron mutilados, y por eso hay
+# que forzarlos con --rehacer: el flujo normal los saltaría por tener lote.
+REHACER="${4:-}"
 PROYECTO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="$PROYECTO/data/logs/hemeroteca.log"
 ESPERA_MAX=$((60 * 60 * 60))   # 60 horas: el recorrido son ~50
@@ -105,6 +108,14 @@ for pasada in 1 2; do
     (( faltan <= 0 )) && break
     esperar_al_archivo || break
 done
+
+if [[ -n "$REHACER" ]]; then
+    for mes in $REHACER; do
+        echo "[reparar] rehaciendo $mes (tenía lote incompleto)" >> "$LOG"
+        docker compose exec -T app python -m src.pipeline.backfill_noticias \
+            --medio "$MEDIO" --desde "$mes" --hasta "$mes" --rehacer >> "$LOG" 2>&1
+    done
+fi
 
 {
     echo "[reparar] terminado."
