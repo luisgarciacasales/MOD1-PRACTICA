@@ -35,7 +35,8 @@ from pathlib import Path
 sys.path.insert(0, "/app")
 
 from src.config import get_settings  # noqa: E402
-from src.config.tiempo import TZ_MERCADO  # noqa: E402
+from src.config.tiempo import TZ_MERCADO, ahora_mercado  # noqa: E402
+from src.pipeline.calendario import es_dia_habil  # noqa: E402
 
 HORA_CIERRE = 15  # BMV: 15:00 CT
 
@@ -45,6 +46,27 @@ ETAPAS: tuple[tuple[str, list[str]], ...] = (
     ("validate", ["python", "-m", "src.pipeline.validate"]),
     ("enrich", ["python", "-m", "src.pipeline.enrich"]),
     ("transform", ["python", "-m", "src.pipeline.transform"]),
+    ("correlate", ["python", "-m", "src.pipeline.correlate"]),
+    ("index", ["python", "-m", "src.pipeline.index"]),
+)
+
+# Las mismas etapas en un día sin mercado, que son casi todas.
+#
+# En un día inhábil del sector financiero no hay precios nuevos ni indicadores
+# que publicar, pero **los medios siguen publicando**. Saltarse la corrida
+# entera costaría el hueco de noticias, y no es pequeño: entre el cierre de la
+# víspera y la mañana siguiente se acumulan unas 36 horas, mientras que el feed
+# de El Financiero solo conserva las últimas 100 entradas — unas 20 horas. Por
+# diez inhábiles al año son unas 160 horas de corpus que no se recuperan luego,
+# porque el archivo de prensa no las devuelve (ADR-20).
+#
+# Se omite `transform`, que deriva valuación de precios que hoy no han cambiado.
+# `correlate` sí corre: las noticias de hoy se asocian al siguiente día hábil,
+# que es precisamente lo que el calendario XMEX resuelve.
+ETAPAS_SIN_MERCADO: tuple[tuple[str, list[str]], ...] = (
+    ("ingest", ["python", "-m", "src.pipeline.ingest", "--solo-noticias"]),
+    ("validate", ["python", "-m", "src.pipeline.validate"]),
+    ("enrich", ["python", "-m", "src.pipeline.enrich"]),
     ("correlate", ["python", "-m", "src.pipeline.correlate"]),
     ("index", ["python", "-m", "src.pipeline.index"]),
 )
@@ -104,6 +126,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Corre aunque la BMV siga abierta. Trae una vela incompleta del día.",
     )
     parser.add_argument(
+        "--solo-noticias",
+        action="store_true",
+        help="Fuerza el modo de día sin mercado aunque hoy sea hábil.",
+    )
+    parser.add_argument(
         "--hasta", choices=[n for n, _ in ETAPAS], default=None,
         help="Detiene la cadena tras esta etapa.",
     )
@@ -124,10 +151,22 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    etapas = list(ETAPAS)
+    # ¿Opera hoy el mercado? El calendario XMEX coincide con los días inhábiles
+    # que publica la CNBV para 2026 —verificado uno a uno— y tiene la ventaja de
+    # actualizarse con la librería en vez de con una lista a mano. Un test
+    # contrasta ambos para que una divergencia futura no pase inadvertida.
+    sin_mercado = args.solo_noticias or not es_dia_habil(ahora_mercado().date())
+
+    base = ETAPAS_SIN_MERCADO if sin_mercado else ETAPAS
+    if sin_mercado:
+        print("[batch] día sin mercado: solo noticias "
+              "(no hay precios ni indicadores nuevos que publicar)", flush=True)
+
+    etapas = list(base)
     if args.hasta:
-        corte = [n for n, _ in ETAPAS].index(args.hasta)
-        etapas = etapas[: corte + 1]
+        nombres = [n for n, _ in base]
+        if args.hasta in nombres:
+            etapas = etapas[: nombres.index(args.hasta) + 1]
 
     log = _ruta_logs() / f"batch_{marca}.log"
     historial = _ruta_logs() / "historial.log"

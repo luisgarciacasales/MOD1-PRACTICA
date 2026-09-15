@@ -25,6 +25,7 @@ from datetime import date
 from pathlib import Path
 
 from src.config import get_settings
+from src.config.sources import FUENTES
 from src.config.tiempo import hoy_mercado
 from src.pipeline.bronze import escribir_lote
 from src.sources import (
@@ -158,6 +159,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Descarga y reporta sin escribir en Bronze.",
     )
     parser.add_argument(
+        "--solo-noticias",
+        action="store_true",
+        help="Solo las fuentes de categoría 'noticias'. Para los días inhábiles\n"
+             "del sector financiero: no hay precios ni indicadores que publicar,\n"
+             "pero los medios siguen publicando y el feed solo guarda las\n"
+             "últimas 100 entradas.",
+    )
+    parser.add_argument(
         "--refresco-completo",
         action="store_true",
         help="yahoo_finance descarga la ventana histórica por ticker en vez de "
@@ -168,6 +177,11 @@ def main(argv: list[str] | None = None) -> int:
 
     fecha = date.fromisoformat(args.fecha) if args.fecha else hoy_mercado()
     fuentes = args.fuentes or list(ADAPTADORES)
+    if args.solo_noticias:
+        # Se filtra contra la categoría declarada en la configuración, no
+        # contra una lista aparte: una fuente nueva de noticias entra sola.
+        de_noticias = {f.id for f in FUENTES if f.categoria == "noticias"}
+        fuentes = [f for f in fuentes if f in de_noticias]
     raiz_bronze = Path(get_settings().bronze_path)
 
     print(
