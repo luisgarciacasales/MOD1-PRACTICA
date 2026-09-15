@@ -207,6 +207,69 @@ cambió — creció el contexto, o se está llamando más de la cuenta.
 
 ---
 
+## El pipeline corre solo (desde el 14-sep-2026)
+
+Tres franjas de lunes a viernes, en hora de Ciudad de México:
+
+| hora | qué captura |
+|---|---|
+| **08:00** | antes de la apertura: todo lo publicado durante la noche |
+| **15:30** | media hora tras el cierre: precios del día ya consolidados |
+| **20:00** | cierre de jornada, más la copia de seguridad y el chequeo de calidad |
+
+Ninguna cae con el mercado abierto (8:30–15:00), y es deliberado: una corrida a
+media sesión archivaría en Bronze un precio intradía como si fuera el cierre, y
+si la siguiente fallara quedaría ahí sin que nadie lo notara.
+
+**En día inhábil corre igual, pero solo noticias.** No hay precios que pedir y
+sí medios publicando; saltarse la corrida costaría unas 36 horas de hueco por
+cada inhábil, y el feed de El Financiero solo conserva las últimas 100 entradas
+—unas 20 horas—. El calendario operativo es XMEX, que coincide con los once
+días que publica la CNBV para 2026; un test contrasta ambos por si algún año
+divergen.
+
+**Por qué importa que no se pierda ni un día:** el corpus de noticias no se
+compra, se acumula. Un año de corridas rinde quince veces más señal que ocho
+años de archivo de prensa (ADR-20), así que cada día sin corrida es pérdida
+irrecuperable.
+
+### Si enciendes tarde
+
+El equipo no está encendido las 24 horas, así que `cron` perdería la franja de
+las 08:00 los días de arranque tardío. La entrada `@reboot` recupera la franja
+vencida 150 segundos después de arrancar — el retraso deja que Docker levante
+los contenedores primero.
+
+### Tres salvaguardas
+
+- **No se encabalga:** si hay una corrida viva —una tanda larga de `enrich`, un
+  backfill— la franja siguiente cede en lugar de competir por la GPU.
+- **No repite:** una marca por franja en `data/logs/scheduler/` evita que el
+  `@reboot` duplique una corrida ya hecha.
+- **Un fallo no bloquea:** una franja que falla no escribe marca, así que la
+  siguiente lo reintenta.
+
+### Avisos por Telegram
+
+Solo se avisa de lo accionable:
+
+```
+🔴  una franja falla        →  aviso con las últimas líneas del log
+🔴  calidad sale de OK      →  una vez al día, tras la franja de las 20:00
+    todo correcto           →  silencio
+```
+
+**Nunca «todo correcto».** Un sistema que manda tres confirmaciones diarias deja
+de leerse en una semana, y entonces el aviso que importa pasa desapercibido.
+
+Los avisos **nunca tumban una corrida**: sin token, con Telegram caído o sin
+red, se anota y se sigue. El token se monta como secreto de Docker desde
+`~/augmented/secrets/`; el `chat_id` va en el `.env` porque identifica una
+conversación y no autoriza nada.
+
+    make estado                      # ver si el scheduler está al día
+    tail data/logs/scheduler.log     # qué hizo cada franja
+
 ## ¿Qué está pasando ahora?
 
 ```bash
