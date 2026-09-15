@@ -1,0 +1,11 @@
+=== marcas de franja de hoy ===
+  2026-09-14_2000
+=== ¿qué haría el scheduler si corriera ahora? ===
+  son las 22:32 del Monday 14
+2026-09-14 22:32:48 [scheduler] franja 2000 de hoy ya corrida — se omite
+=== cron instalado ===
+  0  8 * * 1-5 cd $D && bash scripts/scheduler.sh
+  30 15 * * 1-5 cd $D && bash scripts/scheduler.sh
+  0 20 * * 1-5 cd $D && bash scripts/scheduler.sh
+  @reboot sleep 150 && cd $D && bash scripts/scheduler.sh --arranque
+=== próximos días hábiles ===
