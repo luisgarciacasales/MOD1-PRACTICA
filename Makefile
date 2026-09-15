@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas determinismo hemeroteca
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest backtest-noticias costos brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas determinismo hemeroteca
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -227,6 +227,12 @@ backfill-fund: ## Carga fundamentales desde PDF (uso: ARGS="--dir ... --ticker .
 
 brief: ## F4 — brief ejecutivo SEMANAL por sector (uso: make brief ARGS=--dry-run)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.brief $(ARGS)'
+
+costos: ## Latencia y coste del pipeline, medidos sobre las corridas reales
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.costos'
+
+backtest-noticias: ## ¿El sentimiento de las noticias anticipa el retorno? (ADR-21)
+	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.backtest_noticias'
 
 backtest: ## F3 — ¿las señales de valuación anticipan exceso de retorno?
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.backtest $(ARGS)'
