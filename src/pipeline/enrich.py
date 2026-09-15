@@ -52,6 +52,33 @@ from src.prompts import (
 FUENTE_BRONZE = "ollama_enrich"
 
 
+def digest_modelo(nombre: str) -> str:
+    """Identificador de los PESOS, no del nombre.
+
+    `qwen3.5:9b` es una etiqueta: un `ollama pull` puede dejarla apuntando a
+    pesos distintos sin que nada en el registro lo delate. Guardar el digest es
+    lo que permite responder, dentro de un año, si dos inferencias discrepantes
+    salieron del mismo modelo. Se aprendió al investigar la variabilidad del
+    18,2% del 4-sep-2026: no se pudo descartar del todo un cambio de versión
+    porque no había registro, solo la fecha de descarga que informa `ollama`.
+
+    Si no se puede consultar, se devuelve vacío en lugar de fallar: el registro
+    incompleto es preferible a una corrida abortada.
+    """
+    try:
+        import requests
+
+        r = requests.post(
+            f"{get_settings().ollama_base_url}/api/show",
+            json={"model": nombre}, timeout=15,
+        )
+        r.raise_for_status()
+        d = r.json()
+        return (d.get("details", {}) or {}).get("parent_model", "") or d.get("digest", "")[:16]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def huella_prompts() -> str:
     """Identifica la VERSIÓN de los prompts con que se produjo una inferencia.
 
@@ -327,6 +354,7 @@ async def ejecutar(*, limite: int, reprocesar: bool) -> int:
     # registrado en ninguna parte y es lo que impide comparar dos versiones del
     # prompt en vez de sobrescribir una con otra.
     modelo = f"{settings.ollama_model_ner}+{settings.ollama_model_ma}"
+    digest = digest_modelo(settings.ollama_model_ner)
     huella = huella_prompts()
 
     inferencias = [
@@ -334,6 +362,7 @@ async def ejecutar(*, limite: int, reprocesar: bool) -> int:
             "guid": res.guid,
             "source": FUENTE_BRONZE,
             "modelo": modelo,
+            "modelo_digest": digest,
             "prompt_sha": huella,
             "ner": res.crudo_ner,
             "ma": res.crudo_ma,
