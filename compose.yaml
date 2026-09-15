@@ -105,6 +105,7 @@ services:
     # igual. Un servidor sin clave crea el fichero vacío y sigue.
     secrets:
       - anthropic_api_key
+      - telegram_bot_token
 
     environment:
       PROJECT_ROOT: /app
@@ -143,6 +144,13 @@ services:
       # aquí solo va la RUTA. Ver el bloque `secrets:` al final del archivo.
       ANTHROPIC_API_KEY_FILE: /run/secrets/anthropic_api_key
       ANTHROPIC_MODEL_BRIEF: ${ANTHROPIC_MODEL_BRIEF:-claude-opus-5}
+
+      # --- Avisos por Telegram ---
+      # Mismo criterio que arriba: el token es secreto y solo viaja su RUTA.
+      # El chat_id sí es una variable normal — identifica una conversación,
+      # no autoriza nada.
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       REQUESTS_CACHE_PATH: ${REQUESTS_CACHE_PATH:-/app/data/cache/requests_cache.sqlite}
       CACHE_TTL_MARKET_SECONDS: ${CACHE_TTL_MARKET_SECONDS:-86400}
       CACHE_TTL_MACRO_SECONDS: ${CACHE_TTL_MACRO_SECONDS:-604800}
