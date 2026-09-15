@@ -58,6 +58,15 @@ comparar() {  # $1 $2 = archivos ; imprime "cambiadas/total"
     echo "$n/$(wc -l < "$1" | tr -d ' ')"
 }
 
+# Descarga el modelo de la VRAM. `keep_alive: 0` es la vía de la API de Ollama
+# y no depende de que la versión instalada traiga `ollama stop`.
+descargar_modelo() {
+    local modelo="${1:-qwen3.5:9b}"
+    curl -s --max-time 60 http://127.0.0.1:11434/api/generate \
+        -d "{\"model\":\"$modelo\",\"keep_alive\":0,\"prompt\":\"\"}" > /dev/null 2>&1
+    sleep 6
+}
+
 echo "[exp] $N noticias · cuatro corridas (8, 8, 1, 1)"
 for c in 8 1; do
     corrida "$c" "$TMP/${c}_a"
@@ -66,4 +75,16 @@ for c in 8 1; do
         "$c" "$(comparar "$TMP/${c}_a" "$TMP/${c}_b")"
 done
 
-echo "[exp] si con 1 baja a 0 y con 8 no, la causa es el batching (ADR-18)."
+# La hipótesis viva tras refutar el batching: la inferencia sería estable
+# dentro de una misma carga del modelo y variaría entre cargas. El 4-sep se
+# compararon inferencias separadas por SEMANAS —con el modelo descargado y
+# recargado decenas de veces por inactividad— y cambió el 18,2%; el 5-sep,
+# cuatro corridas seguidas con el modelo caliente no cambiaron nada.
+echo "[exp] ahora con el modelo descargado de la VRAM en medio:"
+corrida 8 "$TMP/frio_a"
+descargar_modelo
+corrida 8 "$TMP/frio_b"
+printf '  con recarga entre medias → %s filas cambiadas\n' \
+    "$(comparar "$TMP/frio_a" "$TMP/frio_b")"
+
+echo "[exp] si las tres primeras dan 0 y esta no, la causa es la recarga (ADR-18)."
