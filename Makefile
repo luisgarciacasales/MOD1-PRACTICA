@@ -236,6 +236,7 @@ backtest-noticias: ## ¿El sentimiento de las noticias anticipa el retorno? (ADR
 
 backtest: ## F3 — ¿las señales de valuación anticipan exceso de retorno?
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.backtest $(ARGS)'
+	@bash tests/test_scheduler.sh
 
 index: ## Vectoriza y construye el índice FAISS
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.index $(ARGS)'

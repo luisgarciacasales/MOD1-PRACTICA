@@ -42,10 +42,16 @@ anotar() { echo "$(date '+%F %H:%M:%S') $*" >> "$LOG"; }
 
 # Qué franja corresponde a la hora actual. Se usa para no repetir una corrida
 # ya hecha: el `--arranque` puede coincidir con la hora de cron.
+# OJO con los ceros a la izquierda: bash interpreta `0800` como OCTAL y el 8 no
+# existe en base 8, así que la comparación revienta con "value too great for
+# base" y el `if` se va por el `else`. El 15-sep-2026 eso hizo que la franja de
+# las 08:00 se saltara con el mensaje "antes de las 08:00 — nada que hacer" a
+# las 08:00:01. La variable lleva `10#` para forzar decimal; los LITERALES se
+# escriben sin cero delante.
 franja_actual() {
     if   (( 10#$AHORA >= 2000 )); then echo "2000"
     elif (( 10#$AHORA >= 1530 )); then echo "1530"
-    elif (( 10#$AHORA >= 0800 )); then echo "0800"
+    elif (( 10#$AHORA >= 800 ));  then echo "0800"
     else echo ""; fi
 }
 
