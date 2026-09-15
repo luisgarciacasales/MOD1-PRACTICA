@@ -43,3 +43,57 @@ def test_un_dia_habil_normal_sigue_siendo_habil():
 
     assert es_dia_habil(date(2026, 9, 14))   # lunes ordinario
     assert es_dia_habil(date(2026, 6, 10))   # miércoles ordinario
+
+
+# --- Los avisos no pueden tumbar una corrida --------------------------------
+
+
+def test_sin_token_los_avisos_se_apagan_en_silencio(monkeypatch):
+    """Un pipeline que revienta porque no pudo avisar de un fallo habría
+    convertido la vigilancia en una causa de caídas."""
+    import src.pipeline.avisos as a
+
+    monkeypatch.setattr(a, "configurado", lambda: False)
+    assert a.enviar("algo", "detalle") is False
+
+
+def test_un_fallo_de_red_no_propaga_excepcion(monkeypatch):
+    """Telegram caído, sin DNS, sin salida a internet: se devuelve False y la
+    corrida sigue."""
+    import src.pipeline.avisos as a
+
+    monkeypatch.setattr(a, "configurado", lambda: True)
+
+    class S:
+        token_telegram = "x"
+        telegram_chat_id = "1"
+
+    monkeypatch.setattr(a, "get_settings", lambda: S())
+    import requests
+
+    monkeypatch.setattr(requests, "post", lambda *x, **k: (_ for _ in ()).throw(OSError("sin red")))
+    assert a.enviar("algo") is False
+
+
+def test_el_mensaje_respeta_el_limite_de_telegram(monkeypatch):
+    """La API rechaza por encima de 4096 caracteres; un log largo no puede
+    hacer que el aviso se pierda justo cuando más falta hace."""
+    import src.pipeline.avisos as a
+
+    enviado = {}
+
+    class S:
+        token_telegram = "x"
+        telegram_chat_id = "1"
+
+    monkeypatch.setattr(a, "configurado", lambda: True)
+    monkeypatch.setattr(a, "get_settings", lambda: S())
+    import requests
+
+    class R:
+        status_code = 200
+
+    monkeypatch.setattr(requests, "post",
+                        lambda *x, **k: (enviado.update(k["json"]), R())[1])
+    a.enviar("titulo", "y" * 10_000)
+    assert len(enviado["text"]) <= a.LIMITE_TELEGRAM

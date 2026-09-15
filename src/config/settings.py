@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_api_key_file: Path | None = None
     anthropic_model_brief: str = "claude-opus-5"
+
+    # --- Avisos por Telegram ---
+    # Mismo patrón que la clave de Anthropic: el token es un secreto y se monta
+    # como fichero, nunca como variable de entorno. El chat_id no es secreto
+    # —identifica una conversación, no autoriza nada— así que va en el .env.
+    telegram_bot_token: str = ""
+    telegram_bot_token_file: Path | None = None
+    telegram_chat_id: str = ""
     requests_cache_path: Path = Path("/app/data/cache/requests_cache.sqlite")
     cache_ttl_market_seconds: int = 86_400   # diario
     cache_ttl_macro_seconds: int = 604_800   # semanal
@@ -80,6 +88,24 @@ class Settings(BaseSettings):
     market_calendar: str = "XMEX"
 
     log_level: str = "INFO"
+
+    @property
+    def token_telegram(self) -> str:
+        """Token del bot de avisos, leído del secreto montado.
+
+        Misma precedencia y mismo fail-soft que `clave_anthropic`: si no hay
+        token, se devuelve cadena vacía y los avisos quedan desactivados. Un
+        pipeline que revienta porque no puede avisar de un fallo es peor que
+        uno que falla en silencio — habría convertido la herramienta de
+        vigilancia en una causa de caídas.
+        """
+        ruta = self.telegram_bot_token_file
+        if ruta is not None:
+            try:
+                return ruta.read_text(encoding="utf-8").strip()
+            except OSError:
+                pass
+        return self.telegram_bot_token.strip()
 
     @property
     def clave_anthropic(self) -> str:

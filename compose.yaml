@@ -263,6 +263,12 @@ services:
 secrets:
   anthropic_api_key:
     file: ${ANTHROPIC_SECRET_PATH:-${HOME}/augmented/secrets/anthropic_api_key}
+  # Compose v5.2 no admite `required: false`, así que el fichero debe existir
+  # aunque esté vacío. Con el token ausente los avisos quedan apagados y el
+  # pipeline corre igual — un aviso que no se puede enviar no puede tumbar
+  # una corrida.
+  telegram_bot_token:
+    file: ${TELEGRAM_SECRET_PATH:-${HOME}/augmented/secrets/telegram_bot_token}
 
 volumes:
   pgdata:

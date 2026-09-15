@@ -95,6 +95,19 @@ if (( CODIGO == 0 )); then
     fi
 else
     anotar "[scheduler] franja $FRANJA — FALLÓ (código $CODIGO), se reintentará en la siguiente"
+    # Un fallo es lo único que justifica interrumpir a alguien. Las últimas
+    # líneas del log bastan para saber qué etapa cayó sin abrir el servidor.
+    docker compose exec -T app python -m src.pipeline.avisos         --probar --urgente         --titulo "Corrida de las ${FRANJA:0:2}:${FRANJA:2} falló"         --cuerpo "$(tail -12 "$LOG")" >> /dev/null 2>&1 || true
+fi
+
+# Y la calidad de los datos, una vez al día: el pipeline puede terminar en
+# verde con datos que no lo están, que es justo lo que `calidad` vigila.
+if [[ "$FRANJA" == "2000" ]] && (( CODIGO == 0 )); then
+    SALIDA_CALIDAD=$(docker compose exec -T app python -m src.pipeline.calidad 2>&1)
+    if ! grep -q "0 PROBLEMA" <<< "$SALIDA_CALIDAD"; then
+        anotar "[scheduler] calidad reporta PROBLEMA"
+        docker compose exec -T app python -m src.pipeline.avisos             --probar --urgente --titulo "Calidad de datos: PROBLEMA"             --cuerpo "$(grep -E "PROBLEMA" <<< "$SALIDA_CALIDAD" | head -4)"             >> /dev/null 2>&1 || true
+    fi
 fi
 
 # Las marcas viejas no sirven de nada y ensucian: se conservan dos semanas.
