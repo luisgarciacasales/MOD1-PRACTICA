@@ -95,6 +95,29 @@ GROUP BY sentimiento
 """
 
 
+def _significancia(por_sent: dict[str, dict]) -> tuple[float, float, float]:
+    """Spread positive−negative, su error estándar y el estadístico t.
+
+    Sin esto, la monotonía engaña: un orden correcto entre tres medias es fácil
+    de obtener por azar cuando las desviaciones típicas son varias veces mayores
+    que las diferencias. El error se calcula sobre la **n efectiva** —pares
+    (emisora, día) distintos— y no sobre la cruda, porque varias noticias del
+    mismo día comparten retorno y contarlas por separado estrecharía
+    artificialmente el intervalo.
+    """
+    import math
+
+    p, n = por_sent.get("positive"), por_sent.get("negative")
+    if not p or not n:
+        return (0.0, 0.0, 0.0)
+
+    spread = float(p["exceso_medio"]) - float(n["exceso_medio"])
+    ep = float(p["desv"] or 0) / math.sqrt(max(p["n_efectiva"], 1))
+    en = float(n["desv"] or 0) / math.sqrt(max(n["n_efectiva"], 1))
+    error = math.sqrt(ep**2 + en**2)
+    return (spread, error, spread / error if error else 0.0)
+
+
 def _veredicto(por_sent: dict[str, dict]) -> str:
     """Se exige MONOTONÍA, no un spread favorable.
 
@@ -143,7 +166,14 @@ def ejecutar(horizontes: tuple[int, ...] = HORIZONTES) -> int:
                     continue
                 print(f"  {s:<12}{d['n']:>6}{d['n_efectiva']:>12}"
                       f"{float(d['exceso_medio']):>14.3f}%{float(d['desv'] or 0):>8.2f}")
+            spread, error, t_stat = _significancia(por_sent)
+            # |t| < 2 es, a ojo, no distinguible de cero al 95%. Se evita
+            # hablar de "significativo" sin más: con esta muestra el valor de
+            # esta línea es acotar la magnitud del ruido, no bendecir nada.
+            juicio = ("dentro del ruido" if abs(t_stat) < 2
+                      else "fuera del ruido — merece mirarse")
             print(f"  → {_veredicto(por_sent)}")
+            print(f"     spread {spread:+.2f} pp ± {error:.2f} (t={t_stat:+.2f}) · {juicio}")
 
     print()
     print("Cómo leer esto")
@@ -157,6 +187,9 @@ def ejecutar(horizontes: tuple[int, ...] = HORIZONTES) -> int:
     print("    comparaciones, una favorable por azar es lo esperable.")
     print("  · El sentimiento varía un 18% entre reprocesos por causa no explicada")
     print("    (ADR-18). Parte de lo que se vea aquí podría moverse.")
+    print("  · Un |t| por debajo de 2 significa que el spread no se distingue de cero:")
+    print("    la ordenación puede ser real o puede ser azar, y esta muestra no")
+    print("    permite separarlo. No es lo mismo que haber demostrado que no sirve.")
     return 0
 
 
