@@ -65,18 +65,20 @@ def digest_modelo(nombre: str) -> str:
     Si no se puede consultar, se devuelve vacío en lugar de fallar: el registro
     incompleto es preferible a una corrida abortada.
     """
+    # Se consulta `/api/tags` y no `/api/show`: el segundo devuelve licencia,
+    # plantilla y parámetros, pero NO el digest — comprobado contra el servidor
+    # antes de elegir.
     try:
         import requests
 
-        r = requests.post(
-            f"{get_settings().ollama_base_url}/api/show",
-            json={"model": nombre}, timeout=15,
-        )
+        r = requests.get(f"{get_settings().ollama_base_url}/api/tags", timeout=15)
         r.raise_for_status()
-        d = r.json()
-        return (d.get("details", {}) or {}).get("parent_model", "") or d.get("digest", "")[:16]
+        for m in r.json().get("models", []):
+            if m.get("name") == nombre:
+                return str(m.get("digest", ""))[:16]
     except Exception:  # noqa: BLE001
-        return ""
+        pass
+    return ""
 
 
 def huella_prompts() -> str:
