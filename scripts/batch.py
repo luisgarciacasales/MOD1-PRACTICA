@@ -111,9 +111,23 @@ def _volumenes() -> str:
 
 
 def _mercado_cerrado(ahora: datetime) -> bool:
-    # Sábado y domingo cuentan como cerrado: no habrá vela nueva, pero tampoco
-    # una incompleta, así que el batch puede correr sin riesgo.
-    return ahora.weekday() >= 5 or ahora.hour >= HORA_CIERRE
+    """¿Se puede ingerir sin traer una vela a medio formar?
+
+    El guard existe para una sola cosa: que no se archive en Bronze el precio
+    de una sesión en curso como si fuera el cierre. Por tanto solo tiene
+    sentido cuando HAY sesión.
+
+    Sábado y domingo cuentan como cerrado, y también los inhábiles del sector
+    financiero. Faltaba esto último y se notó el 16-sep-2026 —Día de la
+    Independencia—: el equipo se encendió tarde, el `@reboot` recuperó
+    correctamente la franja de las 08:00, y el batch la abortó con código 2
+    diciendo que la BMV seguía abierta. Ese día no había BMV que estuviera
+    abierta, y encima la corrida iba a ser de solo noticias, que no pide
+    precios en absoluto.
+    """
+    if ahora.weekday() >= 5 or not es_dia_habil(ahora.date()):
+        return True
+    return ahora.hour >= HORA_CIERRE
 
 
 def main(argv: list[str] | None = None) -> int:

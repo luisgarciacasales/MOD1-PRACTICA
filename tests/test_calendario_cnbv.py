@@ -97,3 +97,33 @@ def test_el_mensaje_respeta_el_limite_de_telegram(monkeypatch):
                         lambda *x, **k: (enviado.update(k["json"]), R())[1])
     a.enviar("titulo", "y" * 10_000)
     assert len(enviado["text"]) <= a.LIMITE_TELEGRAM
+
+
+# --- El guard de horario solo aplica cuando hay sesión ----------------------
+
+
+def test_en_dia_inhabil_se_puede_correr_a_cualquier_hora():
+    """El guard existe para no archivar una vela a medio formar, así que solo
+    tiene sentido cuando hay sesión. El 16-sep-2026 —Día de la Independencia—
+    el @reboot recuperó la franja de las 08:00 y el batch la abortó diciendo
+    que la BMV seguía abierta. Ese día no había BMV abierta."""
+    import importlib.util
+    from datetime import datetime
+    from pathlib import Path
+
+    from src.config.tiempo import TZ_MERCADO
+
+    spec = importlib.util.spec_from_file_location(
+        "batch", Path(__file__).resolve().parent.parent / "scripts" / "batch.py"
+    )
+    batch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(batch)
+
+    # Miércoles 16 de septiembre de 2026 a las 11:28: inhábil, en plena
+    # "sesión" si solo se mirara el reloj.
+    inhabil = datetime(2026, 9, 16, 11, 28, tzinfo=TZ_MERCADO)
+    assert batch._mercado_cerrado(inhabil), "en inhábil debe poder correr"
+
+    # Y el control: un martes ordinario a la misma hora sí debe abortar.
+    habil = datetime(2026, 9, 15, 11, 28, tzinfo=TZ_MERCADO)
+    assert not batch._mercado_cerrado(habil), "en día hábil a media sesión debe abortar"
