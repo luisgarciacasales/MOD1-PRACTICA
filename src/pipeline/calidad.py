@@ -190,7 +190,11 @@ def check_huecos_trimestrales(cur) -> Senal:
         cuales = ", ".join(f"{t} ({len(v)} emisoras)" for t, v in sorted(de_la_fuente.items()))
         partes.append(f"{cuantos} por trimestres que la fuente no publicó: {cuales}")
     if sueltos:
-        cuales = ", ".join(f"{v[0]} {t}" for t, v in sorted(sueltos.items()))
+        # Se listan TODAS las emisoras de cada trimestre, no la primera: decir
+        # "2 sueltos" y nombrar una sola deja al lector sin saber cuál falta.
+        cuales = ", ".join(
+            f"{tk} {t}" for t, v in sorted(sueltos.items()) for tk in sorted(v)
+        )
         partes.append(f"{sum(len(v) for v in sueltos.values())} sueltos: {cuales}")
 
     return Senal(
