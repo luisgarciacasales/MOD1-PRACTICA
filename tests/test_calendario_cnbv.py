@@ -127,3 +127,34 @@ def test_en_dia_inhabil_se_puede_correr_a_cualquier_hora():
     # Y el control: un martes ordinario a la misma hora sí debe abortar.
     habil = datetime(2026, 9, 15, 11, 28, tzinfo=TZ_MERCADO)
     assert not batch._mercado_cerrado(habil), "en día hábil a media sesión debe abortar"
+
+
+@pytest.mark.parametrize("hora,minuto,cerrado,por_que", [
+    (7, 59, True,  "antes de abrir: precios de ayer, completos"),
+    (8,  0, True,  "la franja de las 08:00 — el fallo del 17-sep"),
+    (8, 29, True,  "un minuto antes de la campana"),
+    (8, 30, False, "apertura: desde aquí la vela del día está a medio formar"),
+    (12, 0, False, "media sesión"),
+    (14, 59, False, "un minuto antes del cierre"),
+    (15, 0, True,  "cierre: la vela ya está completa"),
+    (20, 0, True,  "noche"),
+])
+def test_la_sesion_tiene_apertura_y_cierre(hora: int, minuto: int, cerrado: bool, por_que: str):
+    """El guard conocía solo la hora de cierre, así que trataba las 08:00 como
+    sesión en curso y abortaba la primera franja del día. La BMV opera de 8:30
+    a 15:00: antes de abrir, los precios son los de ayer y son definitivos."""
+    import importlib.util
+    from datetime import datetime
+    from pathlib import Path
+
+    from src.config.tiempo import TZ_MERCADO
+
+    spec = importlib.util.spec_from_file_location(
+        "batch", Path(__file__).resolve().parent.parent / "scripts" / "batch.py"
+    )
+    batch = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(batch)
+
+    # Jueves 17 de septiembre de 2026: día hábil ordinario.
+    cuando = datetime(2026, 9, 17, hora, minuto, tzinfo=TZ_MERCADO)
+    assert batch._mercado_cerrado(cuando) is cerrado, por_que

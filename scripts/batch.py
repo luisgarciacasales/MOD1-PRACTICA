@@ -38,7 +38,13 @@ from src.config import get_settings  # noqa: E402
 from src.config.tiempo import TZ_MERCADO, ahora_mercado  # noqa: E402
 from src.pipeline.calendario import es_dia_habil  # noqa: E402
 
-HORA_CIERRE = 15  # BMV: 15:00 CT
+# Sesión de la BMV en hora de Ciudad de México. Hacen falta LAS DOS: con solo
+# la de cierre, cualquier hora anterior parecía "sesión en curso" y el batch
+# abortaba a las 08:00, cuando el mercado aún no ha abierto y los precios son
+# los del cierre de ayer — completos y definitivos. Pasó el 17-sep-2026, y la
+# franja de las 08:00 se eligió justamente por ser anterior a la apertura.
+HORA_APERTURA = (8, 30)
+HORA_CIERRE = (15, 0)
 
 # Orden no negociable: cada etapa consume lo que produjo la anterior.
 ETAPAS: tuple[tuple[str, list[str]], ...] = (
@@ -127,7 +133,11 @@ def _mercado_cerrado(ahora: datetime) -> bool:
     """
     if ahora.weekday() >= 5 or not es_dia_habil(ahora.date()):
         return True
-    return ahora.hour >= HORA_CIERRE
+
+    minutos = ahora.hour * 60 + ahora.minute
+    apertura = HORA_APERTURA[0] * 60 + HORA_APERTURA[1]
+    cierre = HORA_CIERRE[0] * 60 + HORA_CIERRE[1]
+    return minutos < apertura or minutos >= cierre
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -155,8 +165,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if not _mercado_cerrado(ahora) and not args.ignorar_horario:
         print(
-            f"[batch] ABORTADO — son las {ahora:%H:%M} CT y la BMV cierra a las "
-            f"{HORA_CIERRE}:00.\n"
+            f"[batch] ABORTADO — son las {ahora:%H:%M} CT y la BMV opera de "
+            f"{HORA_APERTURA[0]}:{HORA_APERTURA[1]:02d} a "
+            f"{HORA_CIERRE[0]}:{HORA_CIERRE[1]:02d}.\n"
             "        Ingerir ahora traería una vela incompleta del día en curso y "
             "contaminaría\n"
             "        el cálculo de retornos. Usa --ignorar-horario si de verdad lo "
