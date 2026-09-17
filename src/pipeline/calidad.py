@@ -122,6 +122,13 @@ def check_upa_redondeada(cur) -> Senal:
     )
 
 
+# A partir de cuántas emisoras un mismo trimestre ausente se atribuye a la
+# fuente y no a la carga. Tres es suficiente: que fallen tres cargas del mismo
+# trimestre y de ninguno más es mucho menos probable que un vacío del proveedor,
+# y con dos aún cabría la coincidencia.
+UMBRAL_HUECO_FUENTE = 3
+
+
 def check_huecos_trimestrales(cur) -> Senal:
     """Trimestres ausentes dentro del rango cubierto de cada emisora.
 
@@ -131,6 +138,15 @@ def check_huecos_trimestrales(cur) -> Senal:
 
     Solo cuenta los huecos INTERIORES: que una serie empiece en 2022 no es un
     hueco, es su comienzo.
+
+    **Desde ADR-22 se distingue el ORIGEN del hueco.** No es lo mismo que la
+    fuente no publicara el trimestre a que algo fallara al cargarlo: lo primero
+    no tiene arreglo por nuestra parte y lo segundo sí. Se comprueba mirando si
+    el mismo trimestre falta en VARIAS emisoras a la vez — un fallo de carga no
+    produce eso, y un vacío de la fuente sí. En septiembre de 2026, siete de los
+    nueve huecos eran 2025-T3 en siete emisoras distintas: Yahoo listaba la
+    columna con dos campos de treinta y tres, ninguno de los que el contrato
+    necesita.
     """
     # Se compara por TRIMESTRE, no por fecha exacta. Sumar tres meses a un fin
     # de mes no devuelve el siguiente fin de mes ('2018-09-30' + 3 months =
@@ -149,19 +165,38 @@ def check_huecos_trimestrales(cur) -> Senal:
             SELECT r.ticker, generate_series(r.ini, r.fin, INTERVAL '3 months') AS trim
             FROM rangos r
         )
-        SELECT e.ticker, COUNT(*) AS huecos
+        SELECT to_char(e.trim, 'YYYY "T"Q') AS trimestre, e.ticker
         FROM esperados e
         LEFT JOIN q ON q.ticker = e.ticker AND q.trim = e.trim
         WHERE q.trim IS NULL
-        GROUP BY e.ticker ORDER BY 2 DESC
+        ORDER BY e.trim, e.ticker
     """)
     if not filas:
         return Senal("Huecos en la serie trimestral", OK, "ninguna emisora con huecos interiores")
-    detalle = ", ".join(f"{t}: {n}" for t, n in filas[:4])
+
+    # Agrupar por TRIMESTRE es lo que separa las dos causas. Un fallo de carga
+    # afecta a una emisora suelta; un trimestre que la fuente no publicó falta
+    # en varias a la vez.
+    por_trimestre: dict[str, list[str]] = {}
+    for trim, ticker in filas:
+        por_trimestre.setdefault(trim, []).append(ticker)
+
+    de_la_fuente = {t: v for t, v in por_trimestre.items() if len(v) >= UMBRAL_HUECO_FUENTE}
+    sueltos = {t: v for t, v in por_trimestre.items() if len(v) < UMBRAL_HUECO_FUENTE}
+
+    partes = []
+    if de_la_fuente:
+        cuantos = sum(len(v) for v in de_la_fuente.values())
+        cuales = ", ".join(f"{t} ({len(v)} emisoras)" for t, v in sorted(de_la_fuente.items()))
+        partes.append(f"{cuantos} por trimestres que la fuente no publicó: {cuales}")
+    if sueltos:
+        cuales = ", ".join(f"{v[0]} {t}" for t, v in sorted(sueltos.items()))
+        partes.append(f"{sum(len(v) for v in sueltos.values())} sueltos: {cuales}")
+
     return Senal(
         "Huecos en la serie trimestral", SOSPECHA,
-        f"{sum(n for _, n in filas)} trimestres ausentes · {detalle}"
-        " · cada hueco borra 4 puntos de valuación (eps_ttm exige 4 consecutivos)",
+        " · ".join(partes) + " · cada hueco borra 4 puntos de valuación "
+        "(eps_ttm exige 4 consecutivos)",
     )
 
 
