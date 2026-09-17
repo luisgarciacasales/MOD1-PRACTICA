@@ -262,6 +262,12 @@ Solo se avisa de lo accionable:
 **Nunca «todo correcto».** Un sistema que manda tres confirmaciones diarias deja
 de leerse en una semana, y entonces el aviso que importa pasa desapercibido.
 
+Aparte de los avisos, tras la franja de las 20:00 se envía **un parte de la
+jornada** (`make resumen`): franjas ejecutadas con sus tiempos, noticias nuevas,
+corpus y correlaciones. No contradice lo anterior porque **lleva cifras y no
+adjetivos**: se compara solo con el de ayer y delata un cero donde no debería
+haberlo. Un mensaje que dijera «pipeline OK» sí sería ruido.
+
 Los avisos **nunca tumban una corrida**: sin token, con Telegram caído o sin
 red, se anota y se sigue. El token se monta como secreto de Docker desde
 `~/augmented/secrets/`; el `chat_id` va en el `.env` porque identifica una

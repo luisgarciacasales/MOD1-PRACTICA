@@ -98,6 +98,11 @@ if (( CODIGO == 0 )); then
     # protección y sí triplica el árbol de snapshots.
     if [[ "$FRANJA" == "2000" ]]; then
         bash scripts/backup.sh >> "$LOG" 2>&1 && anotar "[scheduler] copia del día hecha"
+        # El parte de la jornada, una vez al día y con cifras en lugar de
+        # adjetivos: es lo que permite comparar con el de ayer y ver un cero
+        # donde no debería haberlo. Los avisos 🔴 siguen siendo otra cosa —
+        # interrumpen porque algo falló y hay que actuar.
+        docker compose exec -T app python -m src.pipeline.resumen --enviar             >> "$LOG" 2>&1 && anotar "[scheduler] parte del día enviado"
     fi
 else
     anotar "[scheduler] franja $FRANJA — FALLÓ (código $CODIGO), se reintentará en la siguiente"
