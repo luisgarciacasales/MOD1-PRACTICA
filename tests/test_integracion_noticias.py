@@ -18,6 +18,7 @@ from uuid import uuid4
 from src.contracts import validar_noticia
 from src.contracts.news import SilverNews
 from src.pipeline import db
+from src.pipeline.validate import normalizar_noticia
 
 PUBLICADO = datetime(2026, 8, 31, 20, 21, 8, tzinfo=UTC)
 TITULO = "Asaltan Banregio en Tampico - MILENIO"
@@ -30,16 +31,18 @@ URL_B = "https://news.google.com/rss/articles/CBMiaTI?oc=5"
 
 
 def _noticia(url: str, *, titulo: str = TITULO, publicado: datetime = PUBLICADO):
-    noticia = validar_noticia(
-        {
-            "source": "google_news",
-            "title": titulo,
-            "summary": "Sujetos armados asaltaron una sucursal de Banregio.",
-            "link": url,
-            "published": publicado.isoformat(),
-        },
-        uuid4(),
-    )
+    """Recorre el camino real: crudo del feed → `normalizar_noticia` (que hace
+    la extracción léxica) → contrato. Construir el dict normalizado a mano
+    saltaría justo la parte que rellena `tickers`, y con ella el caso que
+    motiva el test de los casts."""
+    crudo = {
+        "source": "google_news",
+        "title": titulo,
+        "summary": "Sujetos armados asaltaron una sucursal de Banregio.",
+        "link": url,
+        "published": publicado.isoformat(),
+    }
+    noticia = validar_noticia(normalizar_noticia(crudo, fintechs=()), uuid4())
     assert isinstance(noticia, SilverNews), getattr(noticia, "rejection_detail", noticia)
     return noticia
 
