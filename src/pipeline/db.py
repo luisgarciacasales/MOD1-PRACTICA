@@ -81,11 +81,12 @@ def conectar() -> psycopg.Connection:
 # URL se omitiría en vez de actualizar, y se rompería la idempotencia que este
 # guard viene a defender.
 #
-# Los casts explícitos del SELECT no son decoración: con `VALUES`, Postgres
-# deduce el tipo de cada parámetro de la columna destino, pero un `SELECT` se
-# resuelve por su cuenta antes de mirar el destino. Un `tickers` en NULL viajaría
-# como TEXT y la carga reventaría con "column tickers is of type text[]" — solo
-# en las noticias sin ticker, que son la mayoría.
+# Comprobado antes de dar esto por bueno (21-sep): pasar de `VALUES` a
+# `SELECT` NO obliga a castear los parámetros. La sospecha era que un `tickers`
+# en NULL viajaría como TEXT y chocaría contra la columna TEXT[], pero psycopg
+# lo envía con tipo inferible y Postgres lo coacciona al de la columna destino.
+# Se probaron las dos versiones contra la base real: ambas cargan. Los casts se
+# quitaron por eso — estaban de más y su comentario afirmaba un fallo inexistente.
 #
 # La comparación del título es EXACTA, no normalizada. Los dos casos medidos
 # traían titulares idénticos byte a byte (lo que cambió fue la URL), y exigir
@@ -97,10 +98,9 @@ INSERT INTO silver_news (
     tickers, sector, entities, enriched, macro_bypass, raw_batch_uuid
 )
 SELECT
-    %(guid)s::TEXT, %(source)s::TEXT, %(title)s::TEXT, %(content)s::TEXT,
-    %(url)s::TEXT, %(published_at)s::TIMESTAMPTZ, %(ingested_at)s::TIMESTAMPTZ,
-    %(tickers)s::TEXT[], %(sector)s::TEXT, %(entities)s::TEXT[],
-    %(enriched)s::BOOLEAN, %(macro_bypass)s::BOOLEAN, %(raw_batch_uuid)s::UUID
+    %(guid)s, %(source)s, %(title)s, %(content)s, %(url)s, %(published_at)s,
+    %(ingested_at)s, %(tickers)s, %(sector)s, %(entities)s, %(enriched)s,
+    %(macro_bypass)s, %(raw_batch_uuid)s
 WHERE NOT EXISTS (
     SELECT 1 FROM silver_news n
     WHERE n.source = %(source)s

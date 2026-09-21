@@ -131,11 +131,11 @@ def test_misma_nota_publicada_otro_dia_es_otra_noticia(cur):
 
 
 def test_una_noticia_sin_tickers_se_carga(cur):
-    """Con `VALUES`, Postgres deducía el tipo de cada parámetro de la columna
-    destino; el `SELECT` del guard se resuelve antes de mirar el destino. Sin
-    los casts explícitos, un `tickers` en NULL viaja como TEXT y la carga
-    revienta con "column tickers is of type text[]" — en la mayoría del corpus.
-    """
+    """El guard cambió el `VALUES` del INSERT por un `SELECT`, y con él la vía
+    por la que Postgres resuelve el tipo de cada parámetro. La mayoría del
+    corpus llega sin `tickers`, así que un TEXT[] en NULL por esa vía nueva es
+    el caso masivo: si algo se hubiera torcido ahí, se habría llevado por
+    delante casi toda la ingesta y no un caso raro."""
     sin_ticker = _noticia(
         URL_A,
         titulo="El Banco de México mantiene la tasa de referencia sin cambios",
