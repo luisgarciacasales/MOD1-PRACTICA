@@ -30,7 +30,13 @@ URL_A = "https://news.google.com/rss/articles/CBMiaTE?oc=5"
 URL_B = "https://news.google.com/rss/articles/CBMiaTI?oc=5"
 
 
-def _noticia(url: str, *, titulo: str = TITULO, publicado: datetime = PUBLICADO):
+def _noticia(
+    url: str,
+    *,
+    titulo: str = TITULO,
+    publicado: datetime = PUBLICADO,
+    cuerpo: str = "Sujetos armados asaltaron una sucursal de Banregio.",
+):
     """Recorre el camino real: crudo del feed → `normalizar_noticia` (que hace
     la extracción léxica) → contrato. Construir el dict normalizado a mano
     saltaría justo la parte que rellena `tickers`, y con ella el caso que
@@ -38,7 +44,7 @@ def _noticia(url: str, *, titulo: str = TITULO, publicado: datetime = PUBLICADO)
     crudo = {
         "source": "google_news",
         "title": titulo,
-        "summary": "Sujetos armados asaltaron una sucursal de Banregio.",
+        "summary": cuerpo,
         "link": url,
         "published": publicado.isoformat(),
     }
@@ -133,6 +139,7 @@ def test_una_noticia_sin_tickers_se_carga(cur):
     sin_ticker = _noticia(
         URL_A,
         titulo="El Banco de México mantiene la tasa de referencia sin cambios",
+        cuerpo="La junta de gobierno decidió mantener la tasa objetivo.",
     )
     assert sin_ticker.tickers is None
 
