@@ -42,6 +42,18 @@ class Carga:
     nuevas: int = 0
     actualizadas: int = 0
 
+    duplicadas: int = 0
+    """Filas que la carga descartó por repetir un artículo ya presente bajo otra
+    clave. Hoy solo las noticias las producen (ver `_SQL_NEWS`).
+
+    Deliberadamente NO se llaman "omitidas": `validate` ya usa esa palabra para
+    el dato de Bronze cuya serie se retiró de la configuración, que es un dato
+    fuera de alcance y no un duplicado. Son dos cosas distintas y el resumen las
+    enseña por separado.
+
+    No entran en `total` porque no se escribieron: un reproceso con 0 nuevas y N
+    duplicadas sigue siendo idempotente."""
+
     @property
     def total(self) -> int:
         return self.nuevas + self.actualizadas
@@ -49,6 +61,7 @@ class Carga:
     def __iadd__(self, otra: Carga) -> Carga:
         self.nuevas += otra.nuevas
         self.actualizadas += otra.actualizadas
+        self.duplicadas += otra.duplicadas
         return self
 
 
@@ -56,14 +69,44 @@ def conectar() -> psycopg.Connection:
     return psycopg.connect(get_settings().postgres_dsn, row_factory=tuple_row)
 
 
+# El `WHERE NOT EXISTS` es la segunda clave de la noticia, y existe porque la
+# primera no basta: `guid` es SHA-256 de (source, url, published_at), así que un
+# artículo que vuelve con otra URL —google_news rota los ids de su blob de
+# redirección, El Economista corrigió un slug— entra como fila nueva sin que el
+# `ON CONFLICT (guid)` pueda verlo. Ver sql/026 para las dos URLs reales.
+#
+# Va dentro del INSERT y no como SELECT previo para que sea una sola sentencia:
+# comprobar y luego insertar deja una ventana entre ambas y un viaje más por
+# fila. El `n.guid <> %(guid)s` es imprescindible — sin él, reingerir la MISMA
+# URL se omitiría en vez de actualizar, y se rompería la idempotencia que este
+# guard viene a defender.
+#
+# Los casts explícitos del SELECT no son decoración: con `VALUES`, Postgres
+# deduce el tipo de cada parámetro de la columna destino, pero un `SELECT` se
+# resuelve por su cuenta antes de mirar el destino. Un `tickers` en NULL viajaría
+# como TEXT y la carga reventaría con "column tickers is of type text[]" — solo
+# en las noticias sin ticker, que son la mayoría.
+#
+# La comparación del título es EXACTA, no normalizada. Los dos casos medidos
+# traían titulares idénticos byte a byte (lo que cambió fue la URL), y exigir
+# igualdad literal es la opción conservadora: colapsar de más fundiría dos
+# artículos distintos, que es un daño peor y silencioso.
 _SQL_NEWS = """
 INSERT INTO silver_news (
     guid, source, title, content, url, published_at, ingested_at,
     tickers, sector, entities, enriched, macro_bypass, raw_batch_uuid
-) VALUES (
-    %(guid)s, %(source)s, %(title)s, %(content)s, %(url)s, %(published_at)s,
-    %(ingested_at)s, %(tickers)s, %(sector)s, %(entities)s, %(enriched)s,
-    %(macro_bypass)s, %(raw_batch_uuid)s
+)
+SELECT
+    %(guid)s::TEXT, %(source)s::TEXT, %(title)s::TEXT, %(content)s::TEXT,
+    %(url)s::TEXT, %(published_at)s::TIMESTAMPTZ, %(ingested_at)s::TIMESTAMPTZ,
+    %(tickers)s::TEXT[], %(sector)s::TEXT, %(entities)s::TEXT[],
+    %(enriched)s::BOOLEAN, %(macro_bypass)s::BOOLEAN, %(raw_batch_uuid)s::UUID
+WHERE NOT EXISTS (
+    SELECT 1 FROM silver_news n
+    WHERE n.source = %(source)s
+      AND n.title = %(title)s
+      AND n.published_at = %(published_at)s
+      AND n.guid <> %(guid)s
 )
 ON CONFLICT (guid) DO UPDATE SET
     title        = EXCLUDED.title,
@@ -311,7 +354,24 @@ ON CONFLICT (source, guid) WHERE guid IS NOT NULL DO UPDATE SET
 
 
 def cargar_noticias(cur: psycopg.Cursor, filas: list[SilverNews]) -> Carga:
-    return _cargar(cur, _SQL_NEWS, [_dump(f) for f in filas])
+    """No delega en `_cargar` porque las noticias tienen tres desenlaces, no dos.
+
+    `_cargar` lee "sin fila devuelta" como actualización, y aquí también
+    significa "omitida por duplicar un artículo ya cargado" (el `WHERE NOT
+    EXISTS` de `_SQL_NEWS`). Confundirlas contaría como actualizadas unas filas
+    que nunca se escribieron, y el duplicado quedaría invisible en el resumen.
+    """
+    carga = Carga()
+    for fila in filas:
+        cur.execute(_SQL_NEWS, _dump(fila))
+        resultado = cur.fetchone()
+        if resultado is None:
+            carga.duplicadas += 1
+        elif resultado[0]:
+            carga.nuevas += 1
+        else:
+            carga.actualizadas += 1
+    return carga
 
 
 def cargar_precios(cur: psycopg.Cursor, filas: list[MarketPrice]) -> Carga:

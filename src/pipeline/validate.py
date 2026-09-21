@@ -448,9 +448,13 @@ def main(argv: list[str] | None = None) -> int:
                 resumen[source] += carga
                 rechazos_por_fuente[source] += rechazos
                 motivos_totales.update(motivos)
+                duplicadas = (
+                    f", {carga.duplicadas} duplicadas" if carga.duplicadas else ""
+                )
                 print(
                     f"[validate] {source}: {carga.nuevas} nuevas, "
-                    f"{carga.actualizadas} actualizadas, {rechazos} a cuarentena",
+                    f"{carga.actualizadas} actualizadas, {rechazos} a cuarentena"
+                    f"{duplicadas}",
                     flush=True,
                 )
         conexion.commit()
@@ -471,6 +475,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{'TOTAL':<16} {total_nuevas:>8} "
           f"{sum(c.actualizadas for c in resumen.values()):>9} "
           f"{sum(rechazos_por_fuente.values()):>11}")
+
+    duplicadas_total = sum(c.duplicadas for c in resumen.values())
+    if duplicadas_total:
+        print()
+        print(f"duplicadas (mismo artículo con otra URL): {duplicadas_total}")
+        print("  (la fuente reemitió el artículo con otra URL; ver sql/026)")
 
     if omitidas_total:
         print()
