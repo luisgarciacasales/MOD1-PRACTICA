@@ -110,7 +110,7 @@ define exige_remoto
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest backtest-noticias costos resumen brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas determinismo hemeroteca
+.PHONY: help where init deploy push pull up down build ps logs shell psql config tunnel gpu ollama batch historial refresco ingest validate enrich transform correlate index backtest backtest-noticias costos resumen brief backfill-fund search demo evidencia bronze migrate test verify calidad estado backup backups replicar replicas replicar-instalar replicar-estado replicar-quitar determinismo hemeroteca
 
 help: ## Muestra esta ayuda
 	@echo "Contexto detectado: $(CONTEXTO)"
@@ -291,6 +291,15 @@ replicar: ## Trae las copias del servidor al Mac (segundo disco, fuera del NVMe)
 
 replicas: ## Compara qué copias hay en el servidor y cuáles en el Mac
 	@bash scripts/replicar.sh --ver
+
+replicar-instalar: ## Programa la réplica en el Mac (LaunchAgent, 09:00 y 20:30)
+	@bash scripts/replicar_instalar.sh instalar
+
+replicar-estado: ## Estado del agente, antigüedad de la copia y últimas ejecuciones
+	@bash scripts/replicar_instalar.sh estado
+
+replicar-quitar: ## Retira el agente programado (no borra ninguna copia)
+	@bash scripts/replicar_instalar.sh quitar
 
 verify: ## Checks de la Definición de Terminado (PRD §8)
 	$(RUN) '$(COMPOSE) exec -T app python -m src.pipeline.verify $(ARGS)'

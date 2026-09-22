@@ -611,6 +611,64 @@ nadie comprueba es una suposición.
 Cuesta poco: los enlaces duros se preservan (`-H`), así que las cinco copias
 ocupan 494 MB en vez de 1,7 GB, y una réplica sin cambios tarda un segundo.
 
+### La réplica va programada (desde el 21-sep-2026)
+
+```bash
+make replicar-instalar   # programa el LaunchAgent y comprueba que corre
+make replicar-estado     # agente, antigüedad de la copia y últimas ejecuciones
+make replicar-quitar     # desprograma (no borra ninguna copia)
+```
+
+**Por qué se programó:** era el único paso manual que quedaba del respaldo, y
+eso significaba que la única protección contra el fallo del disco llegaba hasta
+donde hubiera llegado la última vez que alguien se acordó. El 21-sep se
+encontró con **tres días de atraso** (servidor al 21, Mac al 18).
+
+**launchd, no cron.** launchd ejecuta una cita vencida al despertar; cron la
+descarta. En un portátil que duerme, esa diferencia es la mitad de las
+ejecuciones. Dos pasadas: **20:30** (tras el respaldo del servidor de las 20:02
+y antes de su ventana de apagado) y **09:00** (recoge lo que la anterior no
+pudo), más una al iniciar sesión.
+
+**Es un LaunchAgent del usuario, y es forzoso.** La clave SSH de este Mac tiene
+passphrase y se resuelve contra el agente y el llavero del usuario; un
+LaunchDaemon sin sesión no tendría acceso a ninguno de los dos y fallaría
+siempre. El precio es que no corre con la sesión cerrada — aceptable, porque un
+portátil sin sesión tampoco replica hoy.
+
+**`replicar_auto.sh` envuelve a `replicar.sh` en vez de programarlo directo.**
+El script de mano falla con error si el servidor no contesta, que es lo correcto
+cuando acabas de invocarlo. Desatendido eso es ruido: **no contestar es lo
+normal** —el servidor se apaga entre las 18:00 y las 23:00, el Mac duerme o está
+fuera del tailnet— y una alerta diaria deja de leerse, el mismo argumento que
+sostiene el silencio de los avisos de Telegram.
+
+El envoltorio separa *«hoy no se pudo»* de *«llevamos demasiado sin poder»*:
+
+| Registro | Significa | Avisa |
+| --- | --- | --- |
+| `OK` | Replicado y verificado por hash | no |
+| `SIN-SERVIDOR` | El servidor no responde, y la copia aún es reciente | no |
+| `AVISO` | La copia pasa de 3 días (`REPLICA_UMBRAL_DIAS`) | **sí** |
+| `OMITIDA` | Ya había una réplica en curso (candado) | no |
+| `FALLO` | El servidor respondía y la réplica no terminó | **sí** |
+
+El aviso es una **notificación nativa de macOS**, no Telegram: el token del bot
+vive en `~/augmented/secrets/` del servidor, y traerlo al Mac multiplicaría las
+copias de un secreto para ganar un canal que aquí no hace falta.
+
+Registro en `~/augmented/logs/replicar.log`; lo que falle antes de que arranque
+el script, en `replicar.launchd.log`.
+
+**Qué se verificó al instalarlo, porque era el riesgo de verdad.** Un
+LaunchAgent que usa SSH puede quedar instalado, silencioso y sin replicar nada
+si launchd no le pasa `SSH_AUTH_SOCK` — y eso se descubriría el día que hiciera
+falta la copia. Por eso `make replicar-instalar` dispara una ejecución y lee el
+resultado en vez de darse por bueno al registrarse. Comprobado el 21-sep: la
+réplica corrió desde launchd, accedió a la clave con passphrase y verificó el
+hash. También se ejercitaron a mano el candado, la rama sin servidor y el aviso
+por antigüedad.
+
 ### Lo que sigue sin cubrir
 
 Un fallo del equipo entero —robo, incendio, un problema eléctrico serio— con el
