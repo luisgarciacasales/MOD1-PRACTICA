@@ -47,3 +47,10 @@ venv/
 node_modules/
 package.json
 package-lock.json
+
+# EL DOCUMENTO DE PRODUCTO NO SE VERSIONA, y conviene que git lo sepa en vez de
+# confiar en que nadie escriba `git add -A`. Vive solo en el Mac; el servidor no
+# lo necesita y el repositorio es público para el equipo. Apareció como
+# `?? docs/Referencia_Producto.md` justo antes de un commit el 5-nov-2026, que
+# es la clase de aviso que uno ve una vez y la siguiente no.
+docs/Referencia_Producto.md

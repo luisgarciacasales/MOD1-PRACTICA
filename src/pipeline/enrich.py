@@ -291,15 +291,65 @@ RETURNING (xmax = 0)
 """
 
 
+# CUÁNTO SE ESPERA A QUE OLLAMA APAREZCA, y por qué se espera en absoluto.
+#
+# EL 5-NOV-2026 ESTA ETAPA MURIÓ EN 0,2 SEGUNDOS EN LAS DOS FRANJAS DEL DÍA. La
+# causa estaba fuera: `unattended-upgrades` había instalado un kernel nuevo la
+# noche anterior, la máquina arrancó a las 07:24 con él, y Docker lanzó el
+# contenedor de GPU a las 07:25:11 ---siete segundos antes de que el módulo
+# NVIDIA del kernel nuevo estuviera cargado---. El `create` falló, y con
+# `unless-stopped` un fallo de creación NO se reintenta: `RestartCount` quedó en
+# 0 y `lab-ollama` pasó el día entero caído.
+#
+# `ingest` y `validate` sí corrieron, así que Bronze y Silver tenían los datos de
+# la jornada. Lo único que faltaba era que alguien esperase treinta segundos.
+#
+# ESPERAR NO ALARGA LA CORRIDA NORMAL. El primer intento es inmediato y en el
+# caso bueno ---Ollama en pie--- esto cuesta lo que costaba: una llamada a
+# `/api/tags`. La espera solo ocurre cuando ya habríamos fallado.
+#
+# Y NO ES UN SUSTITUTO DE ARREGLAR EL ARRANQUE. Que el contenedor de GPU se
+# levante cuando el driver esté listo le corresponde a `lab-ollama`, que es otro
+# servicio. Esto convierte su fallo en un retraso en vez de en un día perdido,
+# que es lo que esta etapa puede hacer desde su lado.
+ESPERA_ARRANQUE_SEG = 180
+ESPERA_ENTRE_SONDEOS = 10
+
+
+async def esperar_a_ollama(base_url: str) -> tuple[bool, str]:
+    """Sondea hasta que responda o se agote la espera. Dice qué está haciendo.
+
+    Los avisos van a stdout y acaban en el log del batch: si un día la corrida
+    tarda tres minutos más de lo normal, el log explica por qué sin que nadie
+    tenga que entrar al servidor.
+    """
+    limite = time.monotonic() + ESPERA_ARRANQUE_SEG
+    intento = 0
+    while True:
+        intento += 1
+        vivo, detalle = await salud()
+        if vivo:
+            if intento > 1:
+                print(f"[enrich] lab-ollama respondió al intento {intento} "
+                      f"({detalle})", flush=True)
+            else:
+                print(f"[enrich] lab-ollama OK ({detalle})")
+            return True, detalle
+        if time.monotonic() >= limite:
+            return False, detalle
+        print(f"[enrich] lab-ollama no responde ({detalle[:60]}); "
+              f"reintento en {ESPERA_ENTRE_SONDEOS}s", flush=True)
+        await asyncio.sleep(ESPERA_ENTRE_SONDEOS)
+
+
 async def ejecutar(*, limite: int, reprocesar: bool) -> int:
     settings = get_settings()
 
-    vivo, detalle = await salud()
+    vivo, detalle = await esperar_a_ollama(settings.ollama_base_url)
     if not vivo:
-        print(f"[enrich] lab-ollama no responde en {settings.ollama_base_url}: {detalle}",
-              file=sys.stderr)
+        print(f"[enrich] lab-ollama no responde en {settings.ollama_base_url} "
+              f"tras {ESPERA_ARRANQUE_SEG}s de espera: {detalle}", file=sys.stderr)
         return 1
-    print(f"[enrich] lab-ollama OK ({detalle})")
 
     with db.conectar() as conexion, conexion.cursor(row_factory=psycopg.rows.dict_row) as cur:
         cur.execute(_SQL_PENDIENTES, {"reprocesar": reprocesar, "limite": limite})
