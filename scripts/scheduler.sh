@@ -87,6 +87,65 @@ if docker top mod1-app 2>/dev/null | grep -qE "batch\.py|pipeline\.(enrich|inges
     exit 0
 fi
 
+# ──────────────────────────────────────────────────────────────────────────────
+# OLLAMA, ANTES DE EMPEZAR: SI MURIÓ AL ARRANCAR, LEVANTARLO.
+#
+# EL 5-NOV-2026 ESTO COSTÓ UN DÍA ENTERO. `unattended-upgrades` instaló un
+# kernel nuevo el día 4 a las 07:32; la máquina se apagó esa noche y arrancó el 5
+# ya con el kernel nuevo. Docker lanzó `lab-ollama` diez segundos después de que
+# el módulo NVIDIA empezara a cargarse, y no llegó: `nvml error: driver not
+# loaded`. Con `unless-stopped`, un fallo al CREAR el contenedor no se reintenta
+# —`RestartCount` quedó en 0— así que pasó el día caído y las tres franjas
+# abortaron en `enrich`. Y como la copia del día solo se hace tras una franja de
+# las 20:00 exitosa, ese día **tampoco hubo copia**.
+#
+# POR QUÉ LO ARREGLA EL SCHEDULER Y NO `enrich`. `enrich` corre DENTRO del
+# contenedor `app`, que no tiene el socket de Docker: puede esperar a que Ollama
+# aparezca —y ahora lo hace— pero no puede levantarlo. Esto corre en el host.
+#
+# ES PREDECIBLE, NO ALEATORIO. El equipo se apaga a las 21:00 y se enciende a las
+# 6:00; `apt-daily-upgrade` dispara a los tres minutos de arrancar. El día que
+# instala un kernel no rompe nada porque sigue corriendo el viejo: rompe a la
+# mañana SIGUIENTE. Un kernel nuevo cada pocas semanas es una mañana perdida al
+# mes, siempre la de después.
+#
+# Y NO PISA UNA PARADA DELIBERADA. `unless-stopped` significa que si alguien
+# detiene el contenedor a mano, Docker respeta esa decisión; arrancarlo aquí sin
+# mirar la pisaría.
+#
+# La firma de esa decisión es el CÓDIGO 0: `docker stop` manda SIGTERM y Ollama
+# sale limpio. Cualquier otro código es un fallo —128 el de esta mañana, 137 un
+# SIGKILL, 1 un arranque roto— y de un fallo sí toca recuperarse. La primera
+# versión de esta condición miraba sólo el 128 y habría dejado morir un 137, que
+# tampoco es una decisión de nadie.
+OLLAMA_URL="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+if ! curl -sf -m 5 "${OLLAMA_URL%/}/api/tags" >/dev/null 2>&1; then
+    ESTADO=$(docker inspect lab-ollama \
+        --format '{{.State.Status}}|{{.State.ExitCode}}|{{.State.Error}}' 2>/dev/null || echo "ausente||")
+    SALIO="${ESTADO#*|}"; SALIO="${SALIO%%|*}"
+    MOTIVO="${ESTADO##*|}"
+    if [[ "$ESTADO" == ausente* ]]; then
+        anotar "[scheduler] lab-ollama no existe: no es cosa de este servicio, se sigue"
+    elif [[ "$SALIO" == "0" && -z "${MOTIVO// }" ]]; then
+        anotar "[scheduler] lab-ollama detenido a propósito (código 0) — NO se toca"
+    else
+        anotar "[scheduler] lab-ollama caído por fallo (código $SALIO${MOTIVO:+, $MOTIVO}) — levantándolo"
+        if docker start lab-ollama >> "$LOG" 2>&1; then
+            for _ in $(seq 1 30); do
+                curl -sf -m 3 "${OLLAMA_URL%/}/api/tags" >/dev/null 2>&1 && break
+                sleep 2
+            done
+            if curl -sf -m 3 "${OLLAMA_URL%/}/api/tags" >/dev/null 2>&1; then
+                anotar "[scheduler] lab-ollama responde: se continúa con la franja"
+            else
+                anotar "[scheduler] lab-ollama arrancó pero no responde tras 60s"
+            fi
+        else
+            anotar "[scheduler] no se pudo levantar lab-ollama; la franja fallará en enrich"
+        fi
+    fi
+fi
+
 anotar "[scheduler] franja $FRANJA — arrancando"
 docker compose exec -T app python scripts/batch.py >> "$LOG" 2>&1
 CODIGO=$?
